@@ -1,0 +1,29 @@
+proxmox_api_url          = "https://your-proxmox-server:8006/api2/json"
+proxmox_api_token_id     = "terraform@pve!terraform"
+proxmox_api_token_secret = "your-api-token-secret"
+proxmox_tls_insecure     = true
+proxmox_node             = "your-proxmox-node-name"
+
+cluster_name = "my-k8s-cluster"
+
+template_name = "ubuntu-22.04-template"
+
+network_bridge  = "vmbr0"
+gateway         = "192.168.1.1"
+master_ip_base  = "192.168.1"
+worker_ip_base  = "192.168.1"
+
+storage_pool = "local-lvm"
+disk_size    = 20
+
+master_count  = 1
+master_cores  = 2
+master_memory = 4096
+
+worker_count  = 2
+worker_cores  = 2
+worker_memory = 4096
+
+vm_user     = "ubuntu"
+vm_password = "your-vm-password"
+ssh_keys    = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQD... your-public-key-here"

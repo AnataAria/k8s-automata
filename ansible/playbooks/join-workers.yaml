@@ -1,0 +1,12 @@
+- name: Prepare worker nodes for Kubernetes
+  hosts: workers
+  become: true
+  roles:
+    - common
+    - docker
+    - kubernetes
+- name: Join worker nodes to cluster
+  hosts: workers
+  become: true
+  roles:
+    - k8s-worker

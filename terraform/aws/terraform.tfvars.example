@@ -1,0 +1,18 @@
+aws_region = "us-west-2"
+
+cluster_name = "my-k8s-cluster"
+
+vpc_cidr           = "10.0.0.0/16"
+public_subnet_cidr = "10.0.1.0/24"
+
+ami_id = "ami-0c02fb55956c7d316"
+
+master_instance_type = "t3.medium"
+worker_instance_type = "t3.medium"
+
+master_count = 1
+worker_count = 2
+
+disk_size = 20
+
+public_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQD... your-public-key-here"

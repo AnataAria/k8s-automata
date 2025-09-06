@@ -1,0 +1,22 @@
+- name: Check if node is already joined to cluster
+  stat:
+    path: /etc/kubernetes/kubelet.conf
+  register: kubelet_conf
+- name: Read join command from file
+  slurp:
+    src: /tmp/kubernetes-join-command
+  register: join_command_b64
+  delegate_to: localhost
+  when: not kubelet_conf.stat.exists
+- name: Set join command fact
+  set_fact:
+    join_command: "{{ join_command_b64.content | b64decode | trim }}"
+  when: not kubelet_conf.stat.exists
+- name: Join worker node to cluster
+  shell: "{{ join_command }}"
+  when: not kubelet_conf.stat.exists
+- name: Wait for kubelet to start
+  systemd:
+    name: kubelet
+    state: started
+  when: not kubelet_conf.stat.exists

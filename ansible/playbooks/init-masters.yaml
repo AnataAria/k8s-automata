@@ -1,0 +1,8 @@
+- name: Prepare master nodes for Kubernetes
+  hosts: masters
+  become: true
+  roles:
+    - common
+    - docker
+    - kubernetes
+    - k8s-master
