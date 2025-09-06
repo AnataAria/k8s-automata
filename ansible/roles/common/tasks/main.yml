@@ -14,6 +14,7 @@
       - software-properties-common
       - unzip
       - vim
+      - nano
       - htop
       - net-tools
     state: present

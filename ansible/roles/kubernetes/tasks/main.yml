@@ -1,10 +1,10 @@
 - name: Add Kubernetes GPG key
   apt_key:
-    url: https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key
+    url: https://pkgs.k8s.io/core:/stable:/v1.34/deb/Release.key
     state: present
 - name: Add Kubernetes repository
   apt_repository:
-    repo: "deb https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /"
+    repo: "deb https://pkgs.k8s.io/core:/stable:/v1.34/deb/ /"
     state: present
 - name: Update apt package cache
   apt:
@@ -12,9 +12,9 @@
 - name: Install Kubernetes packages
   apt:
     name:
-      - kubelet=1.28.2-1.1
-      - kubeadm=1.28.2-1.1
-      - kubectl=1.28.2-1.1
+      - kubelet
+      - kubeadm
+      - kubectl
     state: present
 - name: Hold Kubernetes packages
   dpkg_selections:
