@@ -1,5 +1,5 @@
 - name: Remove old Docker packages
-  apt:
+  ansible.builtin.apt:
     name:
       - docker
       - docker-engine
@@ -8,35 +8,58 @@
       - runc
     state: absent
 - name: Add Docker GPG key
-  apt_key:
+  ansible.builtin.get_url:
     url: https://download.docker.com/linux/ubuntu/gpg
-    state: present
+    dest: /usr/share/keyrings/docker-archive-keyring.gpg
+    mode: '0644'
+    owner: root
+    group: root
 - name: Add Docker repository
-  apt_repository:
-    repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+  ansible.builtin.apt_repository:
+    repo: "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
     state: present
+    filename: docker
 - name: Update apt package cache
-  apt:
+  ansible.builtin.apt:
     update_cache: true
 - name: Install containerd
-  apt:
+  ansible.builtin.apt:
     name: containerd.io
     state: present
 - name: Create containerd configuration directory
-  file:
+  ansible.builtin.file:
     path: /etc/containerd
     state: directory
+    owner: root
+    group: root
+    mode: '0755'
 - name: Generate default containerd configuration
-  shell: containerd config default > /etc/containerd/config.toml
+  ansible.builtin.command:
+    argv:
+      - containerd
+      - config
+      - default
+  register: docker_containerd_config
+  changed_when: not (kubernetes_containerd_config.stdout | length == 0)
   args:
     creates: /etc/containerd/config.toml
+- name: Write containerd configuration file
+  ansible.builtin.copy:
+    content: "{{ kubernetes_containerd_config.stdout }}"
+    dest: /etc/containerd/config.toml
+    owner: root
+    group: root
+    mode: '0644'
 - name: Configure containerd to use systemd cgroup driver
-  replace:
+  ansible.builtin.replace:
     path: /etc/containerd/config.toml
     regexp: 'SystemdCgroup = false'
     replace: 'SystemdCgroup = true'
+    owner: root
+    group: root
+    mode: '0644'
 - name: Start and enable containerd
-  systemd:
+  ansible.builtin.systemd:
     name: containerd
     enabled: true
     state: started

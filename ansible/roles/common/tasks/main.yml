@@ -1,9 +1,9 @@
 - name: Update apt package cache
-  apt:
+  ansible.builtin.apt:
     update_cache: true
     cache_valid_time: 3600
 - name: Install common packages
-  apt:
+  ansible.builtin.apt:
     name:
       - curl
       - wget
@@ -19,29 +19,31 @@
       - net-tools
     state: present
 - name: Disable swap temporarily
-  command: swapoff -a
+  ansible.builtin.command: swapoff -a
   when: ansible_swaptotal_mb > 0
+  changed_when: false
 - name: Disable swap permanently
-  replace:
+  ansible.builtin.replace:
     path: /etc/fstab
     regexp: '^([^#].*?\sswap\s+sw\s+.*)$'
     replace: '# \1'
 - name: Load br_netfilter module
-  modprobe:
+  community.general.modprobe:
     name: br_netfilter
     state: present
 - name: Load overlay module
-  modprobe:
+  community.general.modprobe:
     name: overlay
     state: present
 - name: Create modules-load config for kubernetes
-  copy:
+  ansible.builtin.copy:
     content: |
       br_netfilter
       overlay
     dest: /etc/modules-load.d/k8s.conf
+    mode: '0644'
 - name: Set sysctl parameters for kubernetes
-  sysctl:
+  ansible.posix.sysctl:
     name: "{{ item.name }}"
     value: "{{ item.value }}"
     state: present
@@ -52,10 +54,10 @@
     - {name: 'net.bridge.bridge-nf-call-ip6tables', value: '1'}
     - {name: 'net.ipv4.ip_forward', value: '1'}
 - name: Ensure hostname is set correctly
-  hostname:
+  ansible.builtin.hostname:
     name: "{{ inventory_hostname }}"
 - name: Update /etc/hosts with cluster nodes
-  lineinfile:
+  ansible.builtin.lineinfile:
     path: /etc/hosts
     line: "{{ hostvars[item]['ansible_host'] }} {{ item }}"
     state: present
