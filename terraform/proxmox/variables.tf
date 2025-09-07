@@ -85,6 +85,12 @@ variable "master_cores" {
   default     = 2
 }
 
+variable "master_socket" {
+  description = "Number of CPU sockets for master nodes"
+  type = number
+  default = 1
+}
+
 variable "master_memory" {
   description = "Memory in MB for master nodes"
   type        = number
@@ -101,6 +107,12 @@ variable "worker_cores" {
   description = "Number of CPU cores for worker nodes"
   type        = number
   default     = 2
+}
+
+variable "worker_socket" {
+  description = "Number of CPU sockets for worker nodes"
+  type = number
+  default = 1
 }
 
 variable "worker_memory" {

@@ -23,9 +23,11 @@ resource "proxmox_vm_qemu" "k8s_masters" {
   
   agent    = 1
   os_type  = "cloud-init"
-  cores    = var.master_cores
-  sockets  = 1
-  cpu      = "host"
+  cpu {
+    cores = var.master_cores
+    sockets = var.master_socket
+    type = "host"
+  }
   memory   = var.master_memory
   scsihw   = "virtio-scsi-pci"
   bootdisk = "scsi0"
@@ -39,6 +41,7 @@ resource "proxmox_vm_qemu" "k8s_masters" {
   }
 
   network {
+    id = 0
     model  = "virtio"
     bridge = var.network_bridge
   }
@@ -56,6 +59,8 @@ resource "proxmox_vm_qemu" "k8s_masters" {
   sshkeys    = var.ssh_keys
 
   tags = "k8s,master"
+  automatic_reboot = true
+  balloon = 0
 }
 
 resource "proxmox_vm_qemu" "k8s_workers" {
@@ -66,9 +71,11 @@ resource "proxmox_vm_qemu" "k8s_workers" {
   
   agent    = 1
   os_type  = "cloud-init"
-  cores    = var.worker_cores
-  sockets  = 1
-  cpu      = "host"
+  cpu {
+    cores = var.worker_cores
+    sockets = var.worker_socket
+    type = "host"
+  }
   memory   = var.worker_memory
   scsihw   = "virtio-scsi-pci"
   bootdisk = "scsi0"
@@ -82,6 +89,7 @@ resource "proxmox_vm_qemu" "k8s_workers" {
   }
 
   network {
+    id = 0
     model  = "virtio"
     bridge = var.network_bridge
   }
