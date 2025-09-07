@@ -18,26 +18,41 @@ provider "proxmox" {
 resource "proxmox_vm_qemu" "k8s_masters" {
   count       = var.master_count
   name        = "${var.cluster_name}-master-${count.index + 1}"
+  automatic_reboot = true
+  balloon = 0
+  bios = "seabios"
+  os_type = var.vm_os_type
+  qemu_os = var.qemu_os
   target_node = var.proxmox_node
   clone       = var.template_name
-  
   agent    = 1
-  os_type  = "cloud-init"
   cpu {
     cores = var.master_cores
     sockets = var.master_socket
-    type = "host"
+    type = var.master_cpu_type
   }
   memory   = var.master_memory
   scsihw   = "virtio-scsi-pci"
-  bootdisk = "scsi0"
 
-  disk {
-    slot     = 0
-    size     = "${var.disk_size}G"
-    type     = "scsi"
-    storage  = var.storage_pool
-    iothread = 1
+  disks {
+    scsi {
+      scsi0 {
+        disk {
+          backup             = true
+          cache              = "none"
+          discard            = true
+          emulatessd         = true
+          iothread           = true
+          mbps_r_burst       = 0.0
+          mbps_r_concurrent  = 0.0
+          mbps_wr_burst      = 0.0
+          mbps_wr_concurrent = 0.0
+          replicate          = true
+          size               = "${var.disk_size}G"
+          storage            = var.storage_pool
+        }
+      }
+    }
   }
 
   network {
@@ -59,8 +74,6 @@ resource "proxmox_vm_qemu" "k8s_masters" {
   sshkeys    = var.ssh_keys
 
   tags = "k8s,master"
-  automatic_reboot = true
-  balloon = 0
 }
 
 resource "proxmox_vm_qemu" "k8s_workers" {
@@ -74,18 +87,30 @@ resource "proxmox_vm_qemu" "k8s_workers" {
   cpu {
     cores = var.worker_cores
     sockets = var.worker_socket
-    type = "host"
+    type = var.worker_cpu_type
   }
   memory   = var.worker_memory
   scsihw   = "virtio-scsi-pci"
-  bootdisk = "scsi0"
 
-  disk {
-    slot     = 0
-    size     = "${var.disk_size}G"
-    type     = "scsi"
-    storage  = var.storage_pool
-    iothread = 1
+  disks {
+    scsi {
+      scsi0 {
+        disk {
+          backup             = true
+          cache              = "none"
+          discard            = true
+          emulatessd         = true
+          iothread           = true
+          mbps_r_burst       = 0.0
+          mbps_r_concurrent  = 0.0
+          mbps_wr_burst      = 0.0
+          mbps_wr_concurrent = 0.0
+          replicate          = true
+          size               = "${var.disk_size}G"
+          storage            = var.storage_pool
+        }
+      }
+    }
   }
 
   network {
@@ -107,6 +132,22 @@ resource "proxmox_vm_qemu" "k8s_workers" {
   sshkeys    = var.ssh_keys
 
   tags = "k8s,worker"
+}
+
+resource "proxmox_lxc" "k8s_loadbalancer" {
+  features {
+    nesting = true
+  }
+  hostname = var.lxc_os_hostname
+  network {
+    name = "eth0"
+    bridge = "vmbro"
+    ip = "dhcp"
+    ip6 = "dhcp"
+  }
+  ostemplate = var.lxc_os_template
+  target_node = var.proxmox_node
+  unprivileged = true
 }
 
 resource "local_file" "ansible_inventory" {

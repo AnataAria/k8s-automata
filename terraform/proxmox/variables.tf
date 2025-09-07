@@ -91,6 +91,12 @@ variable "master_socket" {
   default = 1
 }
 
+variable "master_cpu_type" {
+  description = "Type of cpu for master nodes"
+  type = string
+  default = "x86-64-v2-AES"
+}
+
 variable "master_memory" {
   description = "Memory in MB for master nodes"
   type        = number
@@ -115,6 +121,12 @@ variable "worker_socket" {
   default = 1
 }
 
+variable "worker_cpu_type" {
+  description = "Type of cpu for worker nodes"
+  type = string
+  default = "x86-64-v2-AES"
+}
+
 variable "worker_memory" {
   description = "Memory in MB for worker nodes"
   type        = number
@@ -136,4 +148,28 @@ variable "vm_password" {
 variable "ssh_keys" {
   description = "SSH public keys for cloud-init"
   type        = string
+}
+
+variable "vm_os_type" {
+  description = "VM OS type"
+  type = string
+  default = "Linux 5.x - 2.6 Kernel"
+}
+
+variable "qemu_os" {
+  description = "QEMU os type"
+  type = string
+  default = "l26"
+}
+
+variable "lxc_os_template" {
+  description = "K8s os template for load balancer"
+  type = string
+  default = ""
+}
+
+variable "lxc_os_hostname" {
+  description = "K8s os hostname for load balancer"
+  type = string
+  default = ""
 }
