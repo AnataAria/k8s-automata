@@ -13,11 +13,11 @@ proxmox_config = {
 cluster_name = "my-k8s-cluster"
 
 master_vm_config = {
-  template_name = "ubuntu-22.04-template"
-  ip_base       = "192.168.1.10"
-  vm_count      = 3
+  template_name = "debian12-cloudinit"
+  ip_base       = "192.168.1.130"
+  vm_count      = 2
   cpu_core      = 2
-  cpu_socket    = 1
+  cpu_socket    = 2
   cpu_type      = 0
   memory        = 4096
   os_type       = "cloud-init"
@@ -28,11 +28,11 @@ master_vm_config = {
 }
 
 worker_vm_config = {
-  template_name = "ubuntu-22.04-template"
-  ip_base       = "192.168.1.20"
+  template_name = "debian12-cloudinit"
+  ip_base       = "192.168.1.132"
   vm_count      = 3
   cpu_core      = 4
-  cpu_socket    = 1
+  cpu_socket    = 2
   cpu_type      = 0
   memory        = 8192
   os_type       = "cloud-init"

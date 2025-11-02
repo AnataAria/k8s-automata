@@ -27,7 +27,7 @@ variable "master_vm_config" {
     vm_count      = number
     cpu_core      = number
     cpu_socket    = number
-    cpu_type      = number
+    cpu_type      = string
     memory        = number
     os_type       = string
     qemu_os       = string
@@ -42,7 +42,7 @@ variable "master_vm_config" {
     vm_count      = 3
     cpu_core      = 2
     cpu_socket    = 1
-    cpu_type      = 0
+    cpu_type      = "x86-64-v2-AES"
     memory        = 4096
     os_type       = "cloud-init"
     qemu_os       = "l26"
@@ -59,7 +59,7 @@ variable "worker_vm_config" {
     vm_count      = number
     cpu_core      = number
     cpu_socket    = number
-    cpu_type      = number
+    cpu_type      = string
     memory        = number
     os_type       = string
     qemu_os       = string
@@ -74,7 +74,7 @@ variable "worker_vm_config" {
     vm_count      = 3
     cpu_core      = 4
     cpu_socket    = 1
-    cpu_type      = 0
+    cpu_type      = "x86-64-v2-AES"
     memory        = 8192
     os_type       = "cloud-init"
     qemu_os       = "l26"

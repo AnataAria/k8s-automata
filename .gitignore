@@ -1,10 +1,9 @@
 *.tfstate
 *.tfstate.*
 .terraform/
-.terraform.lock.hcl
-credential.tfvars
-constant.tfvars
-!credential.tfvars.example
+.terraform.lock.hcl*
+*.auto.tfvars
+!configs.tfvars.example
 !constant.tfvars.example
 
 *.retry
