@@ -2,7 +2,7 @@
 *.tfstate.*
 .terraform/
 .terraform.lock.hcl
-terraform.tfvars
+terrafor.tfvars
 !terraform.tfvars.example
 
 *.retry

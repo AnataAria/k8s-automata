@@ -18,17 +18,7 @@ variable "proxmox_config" {
   }
 }
 
-variable "proxmox_credential" {
-  type = object({
-    api_token_id     = string
-    api_token_secret = string
-  })
-  description = "Proxmox VE API authentication credentials for secure access"
-  default = {
-    api_token_id     = "value"
-    api_token_secret = "value"
-  }
-}
+
 
 variable "master_vm_config" {
   type = object({
@@ -56,7 +46,7 @@ variable "master_vm_config" {
     memory        = 4096
     os_type       = "cloud-init"
     qemu_os       = "l26"
-    bios          = "ovmf"
+    bios          = "seabios"
     ip_offset     = 0
     disk_size     = 32
   }
@@ -110,18 +100,4 @@ variable "cluster_name" {
   type        = string
   description = "Name of the Kubernetes cluster to be created"
   default     = "k8s-cluster"
-}
-
-variable "vm_credential" {
-  type = object({
-    username = string
-    password = string
-    ssh_keys = string
-  })
-  description = "Authentication credentials for VM access including SSH configuration"
-  default = {
-    username = "ubuntu"
-    password = "ubuntu"
-    ssh_keys = ""
-  }
 }
