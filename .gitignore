@@ -2,8 +2,10 @@
 *.tfstate.*
 .terraform/
 .terraform.lock.hcl
-terrafor.tfvars
-!terraform.tfvars.example
+credential.tfvars
+constant.tfvars
+!credential.tfvars.example
+!constant.tfvars.example
 
 *.retry
 ansible/inventories/*/hosts.ini
