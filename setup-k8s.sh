@@ -22,11 +22,11 @@ error() {
 
 check_dependencies() {
     log "Checking dependencies..."
-    
+
     command -v terraform >/dev/null 2>&1 || { error "Terraform is required but not installed. Aborting."; exit 1; }
     command -v ansible >/dev/null 2>&1 || { error "Ansible is required but not installed. Aborting."; exit 1; }
     command -v ansible-playbook >/dev/null 2>&1 || { error "Ansible-playbook is required but not installed. Aborting."; exit 1; }
-    
+
     log "All dependencies are installed."
 }
 
@@ -53,19 +53,19 @@ usage() {
 terraform_operation() {
     local platform=$1
     local action=$2
-    
+
     log "Running Terraform $action for $platform..."
-    
+
     cd terraform/$platform
-    
-    if [ ! -f "terraform.tfvars" ]; then
-        error "terraform.tfvars not found in terraform/$platform/"
-        error "Please copy terraform.tfvars.example and customize it"
+
+    if ! ls *.auto.tfvars >/dev/null 2>&1; then
+        echo "*.auto.tfvars not found in terraform/$platform/"
+        echo "Please copy *.auto.tfvars.example and customize it"
         exit 1
     fi
-    
+
     terraform init
-    
+
     case $action in
         "plan")
             terraform plan
@@ -77,26 +77,26 @@ terraform_operation() {
             terraform destroy -auto-approve
             ;;
     esac
-    
+
     cd - > /dev/null
 }
 
 ansible_operation() {
     local platform=$1
-    
+
     log "Running Ansible playbooks for $platform..."
-    
+
     if [ ! -f "ansible/inventories/$platform/hosts.ini" ]; then
         error "Inventory file not found: ansible/inventories/$platform/hosts.ini"
         exit 1
     fi
-    
+
     if [ ! -s "ansible/inventories/$platform/hosts.ini" ]; then
         error "Inventory file is empty: ansible/inventories/$platform/hosts.ini"
         error "Please populate it with your server information"
         exit 1
     fi
-    
+
     ansible-playbook -i ansible/inventories/$platform/hosts.ini ansible/playbooks/site.yaml
 }
 
@@ -105,12 +105,12 @@ main() {
         usage
         exit 1
     fi
-    
+
     local platform=$1
     local action=$2
-    
+
     check_dependencies
-    
+
     case $platform in
         "aws"|"proxmox")
             case $action in
@@ -167,9 +167,8 @@ main() {
             exit 1
             ;;
     esac
-    
+
     log "Operation completed successfully!"
 }
 
-# Run main function
 main "$@"
