@@ -13,5 +13,5 @@ masters
 workers
 
 [k8s_cluster:vars]
-ansible_ssh_private_key_file=~/.ssh/root
+ansible_ssh_private_key_file=${ssh_private_key_path}
 ansible_ssh_common_args='-o StrictHostKeyChecking=no'

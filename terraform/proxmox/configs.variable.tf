@@ -33,6 +33,7 @@ variable "master_vm_config" {
     qemu_os       = string
     bios          = string
     ip_offset     = number
+    id_offset     = number
     disk_size     = number
   })
   description = "Configuration for Kubernetes master node VMs including hardware specs and network settings"
@@ -49,6 +50,7 @@ variable "master_vm_config" {
     bios          = "seabios"
     ip_offset     = 0
     disk_size     = 32
+    id_offset     = 200
   }
 }
 
@@ -65,6 +67,7 @@ variable "worker_vm_config" {
     qemu_os       = string
     bios          = string
     ip_offset     = number
+    id_offset     = number
     disk_size     = number
   })
   description = "Configuration for Kubernetes worker node VMs including hardware specs and network settings"
@@ -81,6 +84,7 @@ variable "worker_vm_config" {
     bios          = "ovmf"
     ip_offset     = 0
     disk_size     = 64
+    id_offset     = 300
   }
 }
 
@@ -90,6 +94,7 @@ variable "lxc_gateways" {
     hostname = string
     memory   = number
     swap     = number
+    cpu      = number
     ipv4     = string
   })
   description = "LXC container configuration for gateway services"
@@ -98,6 +103,7 @@ variable "lxc_gateways" {
     hostname = "k8s-gateway"
     memory   = 4096
     swap     = 0
+    cpu      = 2
     ipv4     = "192.168.1.10/24"
   }
 }

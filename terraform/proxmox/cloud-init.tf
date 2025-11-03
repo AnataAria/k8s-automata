@@ -1,6 +1,7 @@
 resource "proxmox_vm_qemu" "k8s_masters" {
   depends_on       = [proxmox_lxc.k8s_loadbalancer]
   count            = var.master_vm_config.vm_count
+  id               = "${var.master_vm_config.id_offset}-${count.index + 1}"
   name             = "${var.cluster_name}-master-${count.index + 1}"
   automatic_reboot = true
   balloon          = 0
@@ -80,6 +81,7 @@ resource "proxmox_vm_qemu" "k8s_masters" {
 resource "proxmox_vm_qemu" "k8s_workers" {
   depends_on       = [proxmox_vm_qemu.k8s_masters]
   count            = var.worker_vm_config.vm_count
+  id               = "${var.worker_vm_config.id_offset}-${count.index + 1}"
   name             = "${var.cluster_name}-worker-${count.index + 1}"
   automatic_reboot = true
   balloon          = 0
@@ -166,6 +168,7 @@ resource "proxmox_lxc" "k8s_loadbalancer" {
   start    = true
   onboot   = true
   memory   = var.lxc_gateways.memory
+  cores    = 2
   swap     = var.lxc_gateways.swap
   network {
     name     = "eth0"
@@ -192,12 +195,13 @@ resource "proxmox_lxc" "k8s_loadbalancer" {
 resource "local_file" "ansible_inventory" {
   depends_on = [proxmox_vm_qemu.k8s_masters, proxmox_vm_qemu.k8s_workers]
   content = templatefile("${path.module}/inventory.tpl", {
-    masters          = proxmox_vm_qemu.k8s_masters
-    workers          = proxmox_vm_qemu.k8s_workers
-    master_ip_base   = var.master_vm_config.ip_base
-    worker_ip_base   = var.worker_vm_config.ip_base
-    master_ip_offset = var.master_vm_config.ip_offset
-    worker_ip_offset = var.worker_vm_config.ip_offset
+    masters              = proxmox_vm_qemu.k8s_masters
+    workers              = proxmox_vm_qemu.k8s_workers
+    master_ip_base       = var.master_vm_config.ip_base
+    worker_ip_base       = var.worker_vm_config.ip_base
+    master_ip_offset     = var.master_vm_config.ip_offset
+    worker_ip_offset     = var.worker_vm_config.ip_offset
+    ssh_private_key_path = var.vm_credential.ssh_private_key_path
   })
-  filename = "${path.root}/../ansible/inventories/proxmox/hosts.ini"
+  filename = "${path.root}/../../ansible/inventories/proxmox/hosts.ini"
 }

@@ -9,9 +9,10 @@ variable "proxmox_credential" {
 
 variable "vm_credential" {
   type = object({
-    username = string
-    password = string
-    ssh_keys = string
+    username             = string
+    password             = string
+    ssh_keys             = string
+    ssh_private_key_path = string
   })
   description = "Authentication credentials for VM access including SSH configuration"
   sensitive   = true

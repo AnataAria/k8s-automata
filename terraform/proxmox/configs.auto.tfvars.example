@@ -25,6 +25,7 @@ master_vm_config = {
   bios          = "ovmf"
   ip_offset     = 0
   disk_size     = 32
+  id_offset     = 800
 }
 
 worker_vm_config = {
@@ -40,9 +41,14 @@ worker_vm_config = {
   bios          = "ovmf"
   ip_offset     = 0
   disk_size     = 64
+  id_offset     = 900
 }
 
 lxc_gateways = {
-  template = "ubuntu-22.04-standard"
+  template = "local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst"
   hostname = "k8s-gateway"
+  ipv4     = "192.168.1.102"
+  cpu      = 2
+  memory   = 4096
+  swap     = 0
 }
