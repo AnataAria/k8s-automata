@@ -88,11 +88,17 @@ variable "lxc_gateways" {
   type = object({
     template = string
     hostname = string
+    memory   = number
+    swap     = number
+    ipv4     = string
   })
   description = "LXC container configuration for gateway services"
   default = {
     template = "ubuntu-22.04-standard"
     hostname = "k8s-gateway"
+    memory   = 4096
+    swap     = 0
+    ipv4     = "192.168.1.10/24"
   }
 }
 
