@@ -1,7 +1,7 @@
 resource "proxmox_vm_qemu" "k8s_masters" {
   depends_on       = [proxmox_lxc.k8s_loadbalancer]
   count            = var.master_vm_config.vm_count
-  id               = "${var.master_vm_config.id_offset}-${count.index + 1}"
+  vmid             = var.master_vm_config.id_offset + count.index
   name             = "${var.cluster_name}-master-${count.index + 1}"
   automatic_reboot = true
   balloon          = 0
@@ -81,7 +81,7 @@ resource "proxmox_vm_qemu" "k8s_masters" {
 resource "proxmox_vm_qemu" "k8s_workers" {
   depends_on       = [proxmox_vm_qemu.k8s_masters]
   count            = var.worker_vm_config.vm_count
-  id               = "${var.worker_vm_config.id_offset}-${count.index + 1}"
+  vmid             = var.worker_vm_config.id_offset + count.index
   name             = "${var.cluster_name}-worker-${count.index + 1}"
   automatic_reboot = true
   balloon          = 0
