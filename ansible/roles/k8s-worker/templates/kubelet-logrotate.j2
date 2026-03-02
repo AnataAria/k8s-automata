@@ -1,0 +1,11 @@
+/var/log/kubelet.log {
+    {{ log_rotation.kubelet.max_size }}
+    daily
+    rotate {{ log_rotation.kubelet.max_files }}
+    maxage {{ log_rotation.kubelet.max_age }}
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}

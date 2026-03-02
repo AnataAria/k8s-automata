@@ -1,0 +1,46 @@
+---
+cert_config:
+  ca_validity_days: 3650
+  cert_validity_days: 365
+  key_size: 2048
+  organization: "{{ cluster_name | default('kubernetes') }}"
+  organizational_unit: "Kubernetes"
+  country: "US"
+  state: "State"
+  locality: "City"
+
+cert_pki_dir: "/etc/kubernetes/pki"
+cert_etcd_pki_dir: "/etc/kubernetes/pki/etcd"
+
+control_plane_endpoint: "{{ hostvars[groups['loadbalancers'][0]]['ansible_host'] }}:6443"
+
+cert_cluster_name: "{{ cluster_name | default('kubernetes-cluster') }}"
+
+cert_etcd_initial_cluster: >
+  {% for host in groups['etcds'] %}
+  {{ hostvars[host]['ansible_hostname'] }}=https://{{ hostvars[host]['ansible_host'] }}:2380{%- if not loop.last %},{% endif %}
+  {% endfor %}
+
+cert_master_nodes: "{{ groups['masters'] | default([]) }}"
+cert_etcd_nodes: "{{ groups['etcds'] | default([]) }}"
+
+cert_files:
+  etcd_ca:
+    cert: "{{ cert_etcd_pki_dir }}/ca.crt"
+    key: "{{ cert_etcd_pki_dir }}/ca.key"
+  etcd_server:
+    cert: "{{ cert_etcd_pki_dir }}/server.crt"
+    key: "{{ cert_etcd_pki_dir }}/server.key"
+  etcd_peer:
+    cert: "{{ cert_etcd_pki_dir }}/peer.crt"
+    key: "{{ cert_etcd_pki_dir }}/peer.key"
+  etcd_healthcheck:
+    cert: "{{ cert_etcd_pki_dir }}/healthcheck-client.crt"
+    key: "{{ cert_etcd_pki_dir }}/healthcheck-client.key"
+  apiserver_etcd_client:
+    cert: "{{ cert_pki_dir }}/apiserver-etcd-client.crt"
+    key: "{{ cert_pki_dir }}/apiserver-etcd-client.key"
+
+cert_temp_dir: "/tmp/k8s-certs"
+cert_temp_etcd_dir: "{{ cert_temp_dir }}/etcd"
+cert_temp_master_dir: "{{ cert_temp_dir }}/master"

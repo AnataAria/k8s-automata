@@ -1,0 +1,68 @@
+---
+- name: Wait for etcd cluster to be ready across all nodes
+  ansible.builtin.command: >
+    /usr/local/bin/etcdctl
+    --endpoints={% for host in groups['etcds'] %}https://{{ hostvars[host]['ansible_host'] }}:{{ etcd_client_port }}{% if not loop.last %},{% endif %}{% endfor %}
+    --cacert={{ etcd_cert_dir }}/ca.crt
+    --cert={{ etcd_cert_dir }}/healthcheck-client.crt
+    --key={{ etcd_cert_dir }}/healthcheck-client.key
+    endpoint health --cluster
+  register: etcd_cluster_health
+  until: etcd_cluster_health.rc == 0
+  retries: 60
+  delay: 10
+  changed_when: false
+  run_once: true
+  when:
+    - groups['etcds'] | length > 1
+    - not ansible_check_mode
+  tags:
+    - etcd
+    - health
+    - cluster
+
+- name: Verify etcd cluster status
+  ansible.builtin.command: >
+    /usr/local/bin/etcdctl
+    --endpoints={% for host in groups['etcds'] %}https://{{ hostvars[host]['ansible_host'] }}:{{ etcd_client_port }}{% if not loop.last %},{% endif %}{% endfor %}
+    --cacert={{ etcd_cert_dir }}/ca.crt
+    --cert={{ etcd_cert_dir }}/healthcheck-client.crt
+    --key={{ etcd_cert_dir }}/healthcheck-client.key
+    member list -w table
+  register: etcd_member_list
+  changed_when: false
+  run_once: true
+  when:
+    - groups['etcds'] | length > 1
+    - not ansible_check_mode
+  tags:
+    - etcd
+    - health
+    - cluster
+
+- name: Display etcd cluster status
+  ansible.builtin.debug:
+    msg: "{{ etcd_member_list.stdout_lines }}"
+  when:
+    - groups['etcds'] | length > 1
+    - etcd_member_list is succeeded
+    - not ansible_check_mode
+  tags:
+    - etcd
+    - cluster
+
+- name: Verify etcd cluster health
+  ansible.builtin.command: >
+    /usr/local/bin/etcdctl
+    --endpoints=https://{{ ansible_host }}:{{ etcd_client_port }}
+    --cacert={{ etcd_cert_dir }}/ca.crt
+    --cert={{ etcd_cert_dir }}/healthcheck-client.crt
+    --key={{ etcd_cert_dir }}/healthcheck-client.key
+    endpoint health
+  register: etcd_cluster_health_final
+  changed_when: false
+  run_once: true
+  when: not ansible_check_mode
+  tags:
+    - etcd
+    - verify

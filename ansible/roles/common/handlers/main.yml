@@ -1,0 +1,52 @@
+---
+- name: Restart timesyncd
+  ansible.builtin.systemd:
+    name: systemd-timesyncd
+    state: restarted
+    daemon_reload: true
+  tags:
+    - handlers
+    - ntp
+
+- name: Restart systemd-resolved
+  ansible.builtin.systemd:
+    name: systemd-resolved
+    state: restarted
+    daemon_reload: true
+  tags:
+    - handlers
+    - dns
+
+- name: Reload sysctl
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: 1
+    state: present
+    reload: true
+  tags:
+    - handlers
+    - sysctl
+
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+  tags:
+    - handlers
+    - systemd
+
+- name: Restart networking
+  ansible.builtin.systemd:
+    name: systemd-networkd
+    state: restarted
+    daemon_reload: true
+  tags:
+    - handlers
+    - networking
+
+- name: Restart ufw
+  ansible.builtin.systemd:
+    name: ufw
+    state: restarted
+  tags:
+    - handlers
+    - firewall

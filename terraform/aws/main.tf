@@ -165,10 +165,51 @@ resource "aws_instance" "k8s_workers" {
   }
 }
 
+resource "aws_instance" "k8s_etcds" {
+  count                  = var.etcd_count
+  ami                    = var.ami_id
+  instance_type          = var.etcd_instance_type
+  key_name               = aws_key_pair.k8s_key.key_name
+  vpc_security_group_ids = [aws_security_group.k8s_sg.id]
+  subnet_id              = aws_subnet.k8s_public_subnet.id
+
+  root_block_device {
+    volume_size = var.disk_size
+    volume_type = "gp3"
+  }
+
+  tags = {
+    Name = "${var.cluster_name}-etcd-${count.index + 1}"
+    Role = "etcd"
+  }
+}
+
+resource "aws_instance" "k8s_loadbalancer" {
+  count                  = var.loadbalancer_count
+  ami                    = var.ami_id
+  instance_type          = var.loadbalancer_instance_type
+  key_name               = aws_key_pair.k8s_key.key_name
+  vpc_security_group_ids = [aws_security_group.k8s_sg.id]
+  subnet_id              = aws_subnet.k8s_public_subnet.id
+
+  root_block_device {
+    volume_size = var.disk_size
+    volume_type = "gp3"
+  }
+
+  tags = {
+    Name = "${var.cluster_name}-lb-${count.index + 1}"
+    Role = "loadbalancer"
+  }
+}
+
 resource "local_file" "ansible_inventory" {
   content = templatefile("${path.module}/inventory.tpl", {
-    masters = aws_instance.k8s_masters
-    workers = aws_instance.k8s_workers
+    masters       = aws_instance.k8s_masters
+    workers       = aws_instance.k8s_workers
+    etcds         = aws_instance.k8s_etcds
+    loadbalancers = aws_instance.k8s_loadbalancer
+    cluster_name  = var.cluster_name
   })
-  filename = "${path.root}/../ansible/inventories/aws/hosts.ini"
+  filename = "${path.root}/../../ansible/inventories/aws/hosts.ini"
 }

@@ -1,0 +1,36 @@
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+cgroupDriver: {{ kubelet.cgroup_driver }}
+failSwapOn: {{ kubelet.fail_swap_on | lower }}
+containerRuntimeEndpoint: {{ kubelet.container_runtime_endpoint }}
+imageServiceEndpoint: {{ kubelet.image_service_endpoint }}
+maxPods: {{ kubelet.max_pods }}
+clusterDNS:
+  - "{{ kubelet.cluster_dns }}"
+clusterDomain: {{ kubelet.cluster_domain }}
+serverTLSBootstrap: true
+authentication:
+  anonymous:
+    enabled: {{ kubelet.authentication_anonymous_enabled | lower }}
+  webhook:
+    enabled: {{ kubelet.authentication_webhook_enabled | lower }}
+authorization:
+  mode: {{ kubelet.authorization_mode }}
+evictionHard:
+  memory.available: "{{ kubelet.eviction_hard.memory_available }}"
+  nodefs.available: "{{ kubelet.eviction_hard.nodefs_available }}"
+  nodefs.inodesFree: "{{ kubelet.eviction_hard.nodefs_inodes_free }}"
+  imagefs.available: "{{ kubelet.eviction_hard.imagefs_available }}"
+systemReserved:
+  cpu: "{{ worker_config.system_reserved.cpu }}"
+  memory: "{{ worker_config.system_reserved.memory }}"
+  ephemeral-storage: "{{ worker_config.system_reserved.ephemeral_storage }}"
+kubeReserved:
+  cpu: "{{ worker_config.kube_reserved.cpu }}"
+  memory: "{{ worker_config.kube_reserved.memory }}"
+  ephemeral-storage: "{{ worker_config.kube_reserved.ephemeral_storage }}"
+serializeImagePulls: {{ kubelet.serialize_image_pulls | lower }}
+imageGCHighThresholdPercent: {{ storage.image_gc_high_threshold }}
+imageGCLowThresholdPercent: {{ storage.image_gc_low_threshold }}
+logging:
+  verbosity: {{ kubelet.log_level }}

@@ -1,0 +1,107 @@
+---
+common_disable_swap: true
+common_configure_firewall: true
+common_update_packages: true
+
+common_k8s_kernel_modules:
+  - br_netfilter
+  - overlay
+  - ip_vs
+  - ip_vs_rr
+  - ip_vs_wrr
+  - ip_vs_sh
+  - nf_conntrack
+
+common_k8s_sysctl_params:
+  - name: "net.bridge.bridge-nf-call-iptables"
+    value: "1"
+  - name: "net.bridge.bridge-nf-call-ip6tables"
+    value: "1"
+  - name: "net.ipv4.ip_forward"
+    value: "1"
+  - name: "net.netfilter.nf_conntrack_max"
+    value: "1000000"
+  - name: "fs.inotify.max_user_instances"
+    value: "8192"
+  - name: "fs.inotify.max_user_watches"
+    value: "524288"
+  - name: "vm.max_map_count"
+    value: "262144"
+
+common_common_packages:
+  - curl
+  - wget
+  - apt-transport-https
+  - ca-certificates
+  - lsb-release
+  - software-properties-common
+  - unzip
+  - vim
+  - htop
+  - net-tools
+  - jq
+  - cron
+  - logrotate
+  - socat
+  - conntrack
+  - ipset
+  - iptables
+  - ethtool
+  - systemd-timesyncd
+
+common_enable_ntp: true
+common_ntp_servers:
+  - "0.debian.pool.ntp.org"
+  - "1.debian.pool.ntp.org"
+  - "2.debian.pool.ntp.org"
+  - "3.debian.pool.ntp.org"
+
+common_logrotate_configs:
+  - name: "k8s-system"
+    path: "/var/log/kubernetes/*.log"
+    options:
+      - "daily"
+      - "rotate 30"
+      - "compress"
+      - "delaycompress"
+      - "missingok"
+      - "notifempty"
+      - "copytruncate"
+
+common_system_limits:
+  - domain: "*"
+    type: "soft"
+    item: "nofile"
+    value: "65536"
+  - domain: "*"
+    type: "hard"
+    item: "nofile"
+    value: "65536"
+  - domain: "root"
+    type: "soft"
+    item: "nofile"
+    value: "65536"
+  - domain: "root"
+    type: "hard"
+    item: "nofile"
+    value: "65536"
+
+common_configure_dns: true
+common_dns_servers:
+  - "8.8.8.8"
+  - "8.8.4.4"
+  - "1.1.1.1"
+
+common_systemd_services:
+  timesyncd_available: true
+  resolved_available: true
+
+common_disable_unused_filesystems: true
+common_unused_filesystems:
+  - cramfs
+  - freevxfs
+  - jffs2
+  - hfs
+  - hfsplus
+  - squashfs
+  - udf

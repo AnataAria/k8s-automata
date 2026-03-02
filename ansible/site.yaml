@@ -1,0 +1,138 @@
+---
+- name: Prepare all nodes with common configuration
+  hosts: k8s_cluster
+  become: true
+  gather_facts: true
+  vars:
+    k8s_ssl_enabled: true
+    cluster_name: "k8s-cluster"
+    service_subnet: "10.96.0.0/12"
+    pod_subnet: "10.244.0.0/16"
+  roles:
+    - common
+    - containerd
+    - kubernetes
+  tags:
+    - prepare
+    - common
+
+- name: Setup certificates for K8s cluster
+  hosts: cluster
+  become: true
+  gather_facts: true
+  roles:
+    - cert
+  tags:
+    - cert
+
+- name: Deploy load balancer
+  hosts: loadbalancers
+  become: true
+  gather_facts: true
+  roles:
+    - loadbalancer
+  tags:
+    - loadbalancer
+    - lb
+
+- name: Setup external etcd cluster
+  hosts: etcds
+  become: true
+  gather_facts: true
+  roles:
+    - etcd
+  tags:
+    - etcd
+
+- name: Initialize Kubernetes masters
+  hosts: masters
+  become: true
+  gather_facts: true
+  serial: 1
+  roles:
+    - k8s-master
+  tags:
+    - masters
+    - k8s-master
+
+- name: Wait for cluster readiness before joining workers
+  hosts: masters[0]
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Wait for kubectl to be ready
+      ansible.builtin.command: kubectl get nodes
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: kubectl_result
+      until: kubectl_result.rc == 0
+      retries: 30
+      delay: 10
+      changed_when: false
+      tags:
+        - wait
+        - verify
+
+
+
+    - name: Wait for join command file to be created
+      ansible.builtin.wait_for:
+        path: "{{ join_tokens.worker_token_file }}"
+        timeout: 300
+      delegate_to: "{{ groups['masters'][0] }}"
+      tags:
+        - wait
+        - verify
+
+- name: Join worker nodes
+  hosts: workers
+  become: true
+  gather_facts: true
+  roles:
+    - k8s-worker
+  tags:
+    - workers
+    - k8s-worker
+
+- name: Install Cilium CNI
+  hosts: masters[0]
+  become: true
+  gather_facts: true
+  roles:
+    - cilium
+  tags:
+    - cni
+    - cilium
+
+- name: Verify cluster health
+  hosts: masters[0]
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Wait for all nodes to be ready
+      ansible.builtin.command: >
+        kubectl get nodes --no-headers
+        -o custom-columns=":metadata.name,:status.conditions[?(@.type=='Ready')].status"
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: node_status
+      until:
+        - node_status.stdout_lines | length == (groups['masters'] | length + groups['workers'] | length)
+        - node_status.stdout_lines | select('search', 'False') | list | length == 0
+      retries: 60
+      delay: 10
+      changed_when: false
+
+    - name: Display cluster status
+      ansible.builtin.command: kubectl get nodes -o wide
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: cluster_nodes
+      changed_when: false
+
+    - name: Show final cluster status
+      ansible.builtin.debug:
+        msg: "{{ cluster_nodes.stdout_lines }}"
+  tags:
+    - verify
+    - health

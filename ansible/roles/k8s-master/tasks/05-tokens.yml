@@ -1,0 +1,98 @@
+---
+- name: Generate certificate key for additional masters
+  ansible.builtin.command: kubeadm init phase upload-certs --upload-certs
+  args:
+    creates: "{{ join_tokens.master_token_file }}"
+  register: certificate_key_output
+  when:
+    - is_first_master
+    - ha_config.enabled
+    - kubeadm_init_result is succeeded
+  tags:
+    - k8s-master
+    - certs
+
+- name: Extract certificate key
+  ansible.builtin.set_fact:
+    certificate_key: "{{ certificate_key_output.stdout_lines[-1] }}"
+  when:
+    - is_first_master
+    - ha_config.enabled
+    - certificate_key_output is succeeded
+    - not ansible_check_mode | bool
+  tags:
+    - k8s-master
+    - certs
+
+- name: Generate master join command
+  ansible.builtin.command: >
+    kubeadm token create --print-join-command
+    --certificate-key {{ certificate_key }}
+  args:
+    creates: "{{ join_tokens.master_token_file }}"
+  register: master_join_command_raw
+  when:
+    - is_first_master
+    - ha_config.enabled | bool
+    - certificate_key is defined
+    - not ansible_check_mode | bool
+  tags:
+    - k8s-master
+    - join
+
+- name: Set master join command fact
+  ansible.builtin.set_fact:
+    master_join_command: "{{ master_join_command_raw.stdout }} --control-plane"
+  when:
+    - is_first_master
+    - ha_config.enabled
+    - master_join_command_raw is succeeded
+  tags:
+    - k8s-master
+    - join
+
+- name: Set dummy master join command in check mode
+  ansible.builtin.set_fact:
+    master_join_command: "kubeadm join --control-plane --certificate-key dummy-key"
+  when:
+    - is_first_master
+    - ha_config.enabled
+    - ansible_check_mode | bool
+  tags:
+    - k8s-master
+    - join
+    - check_mode
+
+- name: Generate worker join command
+  ansible.builtin.command: kubeadm token create --print-join-command
+  args:
+    creates: "{{ join_tokens.worker_token_file }}"
+  register: worker_join_command_raw
+  when:
+    - is_first_master
+    - kubeadm_init_result is succeeded
+    - not ansible_check_mode | bool
+  tags:
+    - k8s-master
+    - join
+
+- name: Set worker join command fact
+  ansible.builtin.set_fact:
+    worker_join_command: "{{ worker_join_command_raw.stdout }}"
+  when:
+    - is_first_master
+    - worker_join_command_raw is succeeded
+  tags:
+    - k8s-master
+    - join
+
+- name: Set dummy worker join command in check mode
+  ansible.builtin.set_fact:
+    worker_join_command: "kubeadm join dummy-command"
+  when:
+    - is_first_master
+    - ansible_check_mode | bool
+  tags:
+    - k8s-master
+    - join
+    - check_mode

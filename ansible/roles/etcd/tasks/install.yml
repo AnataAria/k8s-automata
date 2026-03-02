@@ -1,0 +1,113 @@
+---
+- name: Create etcd user and group
+  ansible.builtin.group:
+    name: "{{ etcd_group }}"
+    state: present
+  tags:
+    - etcd
+    - user
+
+- name: Create etcd user
+  ansible.builtin.user:
+    name: "{{ etcd_user }}"
+    group: "{{ etcd_group }}"
+    system: true
+    shell: /bin/false
+    home: "{{ etcd_data_dir }}"
+    create_home: false
+    state: present
+  tags:
+    - etcd
+    - user
+
+- name: Create etcd directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ etcd_user }}"
+    group: "{{ etcd_group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ etcd_data_dir }}", mode: "0700" }
+    - { path: "{{ etcd_config_dir }}", mode: "0755" }
+    - { path: "{{ etcd_log_dir }}", mode: "0755" }
+    - { path: "{{ etcd_backup_dir }}", mode: "0755" }
+
+- name: Create Kubernetes PKI directory structure
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - /etc/kubernetes
+    - /etc/kubernetes/pki
+    - "{{ etcd_cert_dir }}"
+  tags:
+    - etcd
+    - directories
+
+- name: Check installed etcd version
+  ansible.builtin.command: /usr/local/bin/etcd --version
+  register: installed_etcd_version
+  ignore_errors: true
+  changed_when: false
+  tags:
+    - etcd
+    - check
+
+- name: Set etcd install flags
+  ansible.builtin.set_fact:
+    install_etcd: "{{ installed_etcd_version.failed or etcd_version not in installed_etcd_version.stdout }}"
+  tags:
+    - etcd
+    - check
+
+- name: Download etcd binary
+  ansible.builtin.get_url:
+    url: "{{ etcd_download_url }}"
+    dest: /tmp/etcd.tar.gz
+    mode: "0644"
+    timeout: 300
+  when: install_etcd
+  tags:
+    - etcd
+    - download
+
+- name: Extract etcd binary
+  ansible.builtin.unarchive:
+    src: /tmp/etcd.tar.gz
+    dest: /tmp
+    remote_src: true
+    creates: "/tmp/etcd-v{{ etcd_version }}-linux-{{ etcd_architecture }}/etcd"
+  when: install_etcd
+  tags:
+    - etcd
+    - install
+
+- name: Install etcd binaries
+  ansible.builtin.copy:
+    src: "/tmp/etcd-v{{ etcd_version }}-linux-{{ etcd_architecture }}/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    mode: "0755"
+    owner: root
+    group: root
+    remote_src: true
+  loop:
+    - etcd
+    - etcdctl
+    - etcdutl
+  when: install_etcd
+  notify: restart etcd
+  tags:
+    - etcd
+    - install
+
+- name: Install cron package
+  ansible.builtin.package:
+    name: cron
+    state: present
+  tags:
+    - etcd
+    - cron

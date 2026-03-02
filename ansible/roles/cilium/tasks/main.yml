@@ -1,0 +1,371 @@
+---
+- name: Check if Cilium is already installed
+  ansible.builtin.command: kubectl get daemonset cilium -n {{ cilium_namespace }}
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: cilium_installed
+  failed_when: false
+  changed_when: false
+  tags:
+    - cilium
+    - check
+
+- name: Install required packages
+  when:
+    - cilium_install_method == "helm"
+    - cilium_installed.rc != 0
+  tags:
+    - cilium
+    - helm
+  block:
+    - name: Install required packages
+      ansible.builtin.apt:
+        name:
+          - curl
+          - gpg
+          - apt-transport-https
+        state: present
+        update_cache: true
+
+    - name: Add Helm GPG key
+      ansible.builtin.get_url:
+        url: https://baltocdn.com/helm/signing.asc
+        dest: /usr/share/keyrings/helm.asc
+        mode: "0644"
+
+    - name: Add Helm APT repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/usr/share/keyrings/helm.asc] https://baltocdn.com/helm/stable/debian/ all main"
+        state: present
+        filename: helm-stable-debian
+
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+
+    - name: Install Helm
+      ansible.builtin.apt:
+        name: helm
+        state: present
+
+    - name: Add Cilium Helm repository
+      kubernetes.core.helm_repository:
+        name: "{{ cilium_helm.repo_name }}"
+        repo_url: "{{ cilium_helm.repo_url }}"
+
+- name: Install Cilium CLI
+  block:
+    - name: Download Cilium CLI
+      ansible.builtin.get_url:
+        url: "{{ cilium_cli.download_url }}"
+        dest: /tmp/cilium-cli.tar.gz
+        mode: "0644"
+        timeout: 300
+
+    - name: Extract Cilium CLI
+      ansible.builtin.unarchive:
+        src: /tmp/cilium-cli.tar.gz
+        dest: /tmp
+        remote_src: true
+        creates: /tmp/cilium
+
+    - name: Install Cilium CLI binary
+      ansible.builtin.copy:
+        src: /tmp/cilium
+        dest: "{{ cilium_cli.install_path }}"
+        mode: "0755"
+        remote_src: true
+
+  when: cilium_installed.rc != 0
+  tags:
+    - cilium
+    - cli
+
+- name: Configure firewall for Cilium ports
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.port }}"
+    proto: "{{ item.proto }}"
+    comment: "{{ item.comment }}"
+  loop: "{{ firewall_rules }}"
+  when: configure_firewall | default(true) | bool
+  tags:
+    - cilium
+    - firewall
+
+- name: Wait for all nodes to be ready before installing CNI
+  ansible.builtin.command: kubectl get nodes --no-headers -o custom-columns=":status.conditions[?(@.type=='Ready')].status"
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: cilium_nodes_ready
+  changed_when: false
+  until:
+    - cilium_nodes_ready.stdout_lines | length == (groups['masters'] | length + groups['workers'] | length)
+    - cilium_nodes_ready.stdout_lines | select('search', 'False') | list | length == 0
+  retries: 60
+  delay: 15
+  when: cilium_installed.rc != 0
+  tags:
+    - cilium
+    - wait
+
+- name: Wait for kube-proxy to be ready before installing CNI
+  ansible.builtin.command: kubectl get daemonset kube-proxy -n kube-system --no-headers
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: cilium_kube_proxy_check
+  changed_when: false
+  until: cilium_kube_proxy_check.rc == 0
+  retries: 40
+  delay: 15
+  when: cilium_installed.rc != 0
+  tags:
+    - cilium
+    - wait
+    - kube-proxy
+
+- name: Install Cilium using Helm
+  kubernetes.core.helm:
+    name: "{{ cilium_helm.release_name }}"
+    chart_ref: "{{ cilium_helm.repo_name }}/{{ cilium_helm.chart_name }}"
+    chart_version: "{{ cilium_helm.chart_version }}"
+    release_namespace: "{{ cilium_namespace }}"
+    create_namespace: true
+    wait: "{{ cilium_helm.wait }}"
+    timeout: "{{ cilium_helm.timeout }}"
+    values:
+      cluster:
+        name: "{{ cilium_config.cluster_name }}"
+        id: "{{ cilium_config.cluster_id }}"
+      ipam:
+        mode: "{{ cilium_config.ipam.mode }}"
+        operator:
+          clusterPoolIPv4PodCIDR: "{{ cilium_config.ipam.operator.cluster_pool_ipv4_pod_cidr }}"
+          clusterPoolIPv4MaskSize: "{{ cilium_config.ipam.operator.cluster_pool_ipv4_mask_size }}"
+
+      # Networking
+      ipv4:
+        enabled: "{{ cilium_config.enable_ipv4 }}"
+      ipv6:
+        enabled: "{{ cilium_config.enable_ipv6 }}"
+
+      # Datapath
+      tunnel: "{{ cilium_config.datapath.tunnel_protocol }}"
+      tunnelPort: "{{ performance.tunnel_port }}"
+
+      # Container runtime
+      containerRuntime:
+        integration: "{{ cilium_config.container_runtime.integration }}"
+        socketPath: "{{ cilium_config.container_runtime.socket_path }}"
+
+      # Kubernetes integration
+      k8sRequireIPv4PodCIDR: "{{ cilium_config.k8s_require_ipv4_pod_cidr }}"
+      k8sRequireIPv6PodCIDR: "{{ cilium_config.k8s_require_ipv6_pod_cidr }}"
+
+      # Security features
+      l7Proxy: "{{ security.enable_l7_proxy }}"
+      localRedirectPolicy: "{{ security.enable_local_redirect_policy }}"
+
+      # Performance optimizations
+      bpf:
+        masquerade: "{{ performance.enable_bpf_masquerade }}"
+        bandwidthManager: "{{ performance.enable_bandwidth_manager }}"
+
+      # Load balancing
+      loadBalancer:
+        mode: "{{ load_balancing.lb_mode }}"
+        algorithm: "{{ load_balancing.lb_algorithm }}"
+
+      # Monitoring
+      prometheus:
+        enabled: "{{ monitoring.prometheus.enabled }}"
+        port: "{{ monitoring.prometheus.port }}"
+
+      # Hubble configuration
+      hubble:
+        enabled: "{{ hubble.enabled }}"
+        relay:
+          enabled: "{{ hubble.relay.enabled }}"
+          replicas: "{{ hubble.relay.replicas }}"
+          resources: "{{ hubble.relay.resources }}"
+        ui:
+          enabled: "{{ hubble.ui.enabled }}"
+          replicas: "{{ hubble.ui.replicas }}"
+
+      # Operator configuration
+      operator:
+        enabled: "{{ operator.enabled }}"
+        replicas: "{{ operator.replicas }}"
+        resources: "{{ operator.resources }}"
+
+      # Node configuration
+      nodeSelector: "{{ node.node_selector }}"
+      tolerations: "{{ node.tolerations }}"
+
+      # CNI configuration
+      cni:
+        binPath: "{{ cni.binaries_dir }}"
+        confPath: "{{ cni.conf_dir }}"
+
+  when:
+    - cilium_install_method == "helm"
+    - cilium_installed.rc != 0
+  tags:
+    - cilium
+    - install
+
+- name: Install Cilium using CLI
+  ansible.builtin.command: >
+    {{ cilium_cli.install_path }} install
+    --version {{ cilium_version }}
+    --namespace {{ cilium_namespace }}
+    --cluster-name {{ cilium_config.cluster_name }}
+    --cluster-id {{ cilium_config.cluster_id }}
+    --ipam {{ cilium_config.ipam.mode }}
+    --datapath-mode {{ cilium_config.datapath.mode }}
+    --tunnel {{ cilium_config.datapath.tunnel_protocol }}
+    --container-runtime {{ cilium_config.container_runtime.integration }}
+    --container-runtime-endpoint {{ cilium_config.container_runtime.socket_path }}
+    {% if security.enable_hubble %}--enable-hubble=true{% endif %}
+    {% if security.enable_hubble_relay %}--enable-hubble-relay=true{% endif %}
+    {% if security.enable_hubble_ui %}--enable-hubble-ui=true{% endif %}
+    {% if monitoring.prometheus.enabled %}--enable-prometheus=true{% endif %}
+    --wait
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  when:
+    - cilium_install_method == "cli"
+    - cilium_installed.rc != 0
+  register: cilium_cli_install
+  tags:
+    - cilium
+    - install
+
+- name: Wait for Cilium pods to be ready
+  ansible.builtin.command: kubectl wait --for=condition=ready pod -l k8s-app=cilium -n {{ cilium_namespace }} --timeout=600s
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  when: cilium_installed.rc != 0 or cilium_cli_install is succeeded
+  tags:
+    - cilium
+    - wait
+
+- name: Wait for Cilium operator to be ready
+  ansible.builtin.command: kubectl wait --for=condition=ready pod -l name=cilium-operator -n {{ cilium_namespace }} --timeout=300s
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  when:
+    - operator.enabled
+    - cilium_installed.rc != 0 or cilium_cli_install is succeeded
+  tags:
+    - cilium
+    - wait
+
+- name: Verify Cilium installation
+  ansible.builtin.command: "{{ cilium_cli.install_path }} status --wait"
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: cilium_status
+  retries: 10
+  delay: 30
+  until: cilium_status.rc == 0
+  tags:
+    - cilium
+    - verify
+
+- name: Run Cilium connectivity test
+  ansible.builtin.command: "{{ cilium_cli.install_path }} connectivity test --test-concurrency 1"
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: cilium_connectivity
+  when:
+    - cilium_status.rc == 0
+    - groups['workers'] | length > 0
+  failed_when: false
+  tags:
+    - cilium
+    - test
+
+- name: Create Cilium network policy if enabled
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: cilium.io/v2
+      kind: CiliumNetworkPolicy
+      metadata:
+        name: default-deny-all
+        namespace: default
+      spec:
+        endpointSelector: {}
+        ingress: []
+        egress: []
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  when:
+    - network_policy.enabled
+    - network_policy.default_policy == "default-deny"
+    - cilium_status.rc == 0
+  tags:
+    - cilium
+    - policy
+
+- name: Create Hubble UI service exposure
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: hubble-ui-nodeport
+        namespace: "{{ cilium_namespace }}"
+      spec:
+        type: NodePort
+        ports:
+          - port: 80
+            targetPort: 8081
+            nodePort: 31234
+        selector:
+          k8s-app: hubble-ui
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  when:
+    - hubble.ui.enabled
+    - cilium_status.rc == 0
+  tags:
+    - cilium
+    - hubble
+
+- name: Create Cilium monitoring script
+  ansible.builtin.template:
+    src: cilium-monitor.sh.j2
+    dest: /usr/local/bin/cilium-monitor.sh
+    mode: "0755"
+  when: monitoring.enabled
+  tags:
+    - cilium
+    - monitoring
+
+- name: Setup Cilium monitoring cron job
+  ansible.builtin.cron:
+    name: "cilium monitoring"
+    minute: "*/5"
+    job: "/usr/local/bin/cilium-monitor.sh >> /var/log/cilium-monitor.log 2>&1"
+    user: root
+    state: present
+  when: monitoring.enabled
+  tags:
+    - cilium
+    - monitoring
+    - cron
+
+- name: Cleanup temporary files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/get_helm.sh
+    - /tmp/cilium-cli.tar.gz
+    - /tmp/cilium
+  tags:
+    - cilium
+    - cleanup

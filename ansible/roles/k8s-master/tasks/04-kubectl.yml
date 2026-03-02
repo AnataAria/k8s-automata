@@ -1,0 +1,41 @@
+---
+- name: Create kubectl directories for users
+  ansible.builtin.file:
+    path: "{{ item.home }}/.kube"
+    state: directory
+    owner: "{{ item.name }}"
+    group: "{{ item.name }}"
+    mode: "0755"
+  loop: "{{ kubectl.users }}"
+  when: (kubernetes_initialized is defined and kubernetes_initialized.stat.exists) or (kubeadm_init_result is defined and kubeadm_init_result is succeeded)
+  tags:
+    - k8s-master
+    - kubectl
+
+- name: Copy admin.conf to user kubectl configs
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: "{{ item.home }}/.kube/config"
+    remote_src: true
+    owner: "{{ item.name }}"
+    group: "{{ item.name }}"
+    mode: "0644"
+  loop: "{{ kubectl.users }}"
+  when: (kubernetes_initialized is defined and kubernetes_initialized.stat.exists) or (kubeadm_init_result is defined and kubeadm_init_result is succeeded)
+  tags:
+    - k8s-master
+    - kubectl
+
+- name: Wait for API server to be ready
+  ansible.builtin.command: >
+    kubectl get --raw='/readyz'
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: api_server_health
+  until: '"ok" in api_server_health.stdout'
+  retries: "{{ health_check.retries }}"
+  delay: "{{ health_check.delay }}"
+  when: (kubernetes_initialized is defined and kubernetes_initialized.stat.exists) or (kubeadm_init_result is defined and kubeadm_init_result is succeeded)
+  tags:
+    - k8s-master
+    - health

@@ -1,14 +1,36 @@
 [masters]
-k8s-master-1 ansible_host=1.2.3.4 ansible_user=ubuntu private_ip=10.0.1.10
+k8s-master-1 ansible_host=1.2.3.4 private_ip=10.0.1.10
 
 [workers]
-k8s-worker-1 ansible_host=1.2.3.5 ansible_user=ubuntu private_ip=10.0.1.11
-k8s-worker-2 ansible_host=1.2.3.6 ansible_user=ubuntu private_ip=10.0.1.12
+k8s-worker-1 ansible_host=1.2.3.5 private_ip=10.0.1.11
+k8s-worker-2 ansible_host=1.2.3.6 private_ip=10.0.1.12
+
+[loadbalancers]
+k8s-lb-1 ansible_host=1.2.3.7 private_ip=10.0.1.20
+
+[etcds]
+k8s-etcd-1 ansible_host=1.2.3.8 private_ip=10.0.1.13
+k8s-etcd-2 ansible_host=1.2.3.9 private_ip=10.0.1.14
+k8s-etcd-3 ansible_host=1.2.3.10 private_ip=10.0.1.15
 
 [k8s_cluster:children]
 masters
 workers
+etcds
+loadbalancers
 
-[k8s_cluster:vars]
+[cluster:children]
+masters
+workers
+etcds
+loadbalancers
+
+[all:vars]
+ansible_user=ubuntu
 ansible_ssh_private_key_file=~/.ssh/id_rsa
 ansible_ssh_common_args='-o StrictHostKeyChecking=no'
+k8s_version=1.31
+cluster_name=k8s-cluster
+service_subnet=10.96.0.0/12
+pod_subnet=10.244.0.0/16
+k8s_ssl_enabled=true

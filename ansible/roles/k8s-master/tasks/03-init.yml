@@ -1,0 +1,63 @@
+---
+- name: Wait for etcd cluster to be available before kubeadm init
+  ansible.builtin.wait_for:
+    host: "{{ hostvars[groups['etcds'][0]]['ansible_host'] }}"
+    port: 2379
+    state: started
+    timeout: 120
+  when:
+    - is_first_master
+    - kubernetes_initialized is defined
+    - not kubernetes_initialized.stat.exists
+  tags:
+    - k8s-master
+    - init
+    - etcd
+
+- name: Wait for all etcd nodes to be available before kubeadm init
+  ansible.builtin.wait_for:
+    host: "{{ hostvars[item]['ansible_host'] }}"
+    port: 2379
+    state: started
+    timeout: 120
+  loop: "{{ groups['etcds'] }}"
+  when:
+    - is_first_master
+    - kubernetes_initialized is defined
+    - not kubernetes_initialized.stat.exists
+  tags:
+    - k8s-master
+    - init
+    - etcd
+
+- name: Verify connectivity to all etcd nodes
+  ansible.builtin.wait_for:
+    host: "{{ hostvars[item]['ansible_host'] }}"
+    port: 2379
+    state: started
+    timeout: 30
+  loop: "{{ groups['etcds'] }}"
+  when:
+    - is_first_master
+    - kubernetes_initialized is defined
+    - not kubernetes_initialized.stat.exists
+  tags:
+    - k8s-master
+    - init
+    - etcd
+
+- name: Initialize first Kubernetes master
+  ansible.builtin.command: >
+    kubeadm init
+    --config={{ kubeadm.config_dir }}/{{ kubeadm.config_file }}
+    --upload-certs
+  args:
+    creates: /etc/kubernetes/admin.conf
+  when:
+    - is_first_master
+    - kubernetes_initialized is defined
+    - not kubernetes_initialized.stat.exists
+  register: kubeadm_init_result
+  tags:
+    - k8s-master
+    - init

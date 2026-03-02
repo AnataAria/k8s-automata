@@ -1,64 +1,238 @@
-- name: Update apt package cache
+---
+- name: Update apt cache
   ansible.builtin.apt:
     update_cache: true
     cache_valid_time: 3600
+  tags:
+    - packages
+    - update
+
 - name: Install common packages
   ansible.builtin.apt:
-    name:
-      - curl
-      - wget
-      - apt-transport-https
-      - ca-certificates
-      - gnupg
-      - lsb-release
-      - software-properties-common
-      - unzip
-      - vim
-      - nano
-      - htop
-      - net-tools
+    name: "{{ common_common_packages }}"
     state: present
+    update_cache: false
+  tags:
+    - packages
+
+- name: Configure system hostname
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+  tags:
+    - hostname
+
+- name: Update /etc/hosts with cluster nodes
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    line: "{{ hostvars[item]['ansible_host'] }} {{ item }}"
+    state: present
+    backup: true
+  loop: "{{ groups['k8s_cluster'] }}"
+  tags:
+    - hosts
+
 - name: Disable swap temporarily
   ansible.builtin.command: swapoff -a
-  when: ansible_swaptotal_mb > 0
+  when:
+    - common_disable_swap | bool
+    - ansible_swaptotal_mb > 0
   changed_when: false
-- name: Disable swap permanently
+  tags:
+    - swap
+
+- name: Disable swap permanently in fstab
   ansible.builtin.replace:
     path: /etc/fstab
     regexp: '^([^#].*?\sswap\s+sw\s+.*)$'
     replace: '# \1'
-- name: Load br_netfilter module
+    backup: true
+  when: common_disable_swap | bool
+  tags:
+    - swap
+
+- name: Load required kernel modules
   community.general.modprobe:
-    name: br_netfilter
+    name: "{{ item }}"
     state: present
-- name: Load overlay module
-  community.general.modprobe:
-    name: overlay
-    state: present
-- name: Create modules-load config for kubernetes
+  loop: "{{ common_k8s_kernel_modules }}"
+  when: ansible_virtualization_type != 'lxc'
+  tags:
+    - kernel
+    - modules
+
+- name: Configure kernel modules to load at boot
   ansible.builtin.copy:
     content: |
-      br_netfilter
-      overlay
+      # Kubernetes required modules
+      {% for module in common_k8s_kernel_modules %}
+      {{ module }}
+      {% endfor %}
     dest: /etc/modules-load.d/k8s.conf
     mode: "0644"
-- name: Set sysctl parameters for kubernetes
+    backup: true
+  when: ansible_virtualization_type != 'lxc'
+  tags:
+    - kernel
+    - modules
+
+- name: Configure sysctl parameters for Kubernetes
   ansible.posix.sysctl:
     name: "{{ item.name }}"
     value: "{{ item.value }}"
     state: present
     sysctl_file: /etc/sysctl.d/k8s.conf
     reload: true
-  loop:
-    - { name: "net.bridge.bridge-nf-call-iptables", value: "1" }
-    - { name: "net.bridge.bridge-nf-call-ip6tables", value: "1" }
-    - { name: "net.ipv4.ip_forward", value: "1" }
-- name: Ensure hostname is set correctly
-  ansible.builtin.hostname:
-    name: "{{ inventory_hostname }}"
-- name: Update /etc/hosts with cluster nodes
+  loop: "{{ common_k8s_sysctl_params }}"
+  tags:
+    - sysctl
+    - kernel
+
+- name: Configure system limits
+  community.general.pam_limits:
+    domain: "{{ item.domain }}"
+    limit_type: "{{ item.type }}"
+    limit_item: "{{ item.item }}"
+    value: "{{ item.value }}"
+  loop: "{{ common_system_limits }}"
+  tags:
+    - limits
+
+- name: Disable unused filesystems
   ansible.builtin.lineinfile:
-    path: /etc/hosts
-    line: "{{ hostvars[item]['ansible_host'] }} {{ item }}"
-    state: present
-  loop: "{{ groups['k8s_cluster'] }}"
+    path: /etc/modprobe.d/blacklist-rare-filesystems.conf
+    line: "install {{ item }} /bin/true"
+    create: true
+    mode: "0644"
+  loop: "{{ common_unused_filesystems }}"
+  when: common_disable_unused_filesystems | bool
+  tags:
+    - security
+    - filesystems
+
+- name: Configure NTP for time synchronization
+  when: common_enable_ntp | bool
+  tags:
+    - ntp
+    - time
+  block:
+    - name: Install systemd-timesyncd
+      ansible.builtin.apt:
+        name: systemd-timesyncd
+        state: present
+      when: common_systemd_services.timesyncd_available | bool
+
+    - name: Configure systemd-timesyncd
+      ansible.builtin.template:
+        src: timesyncd.conf.j2
+        dest: /etc/systemd/timesyncd.conf
+        mode: "0644"
+        backup: true
+      notify: Restart timesyncd
+      when: common_systemd_services.timesyncd_available | bool
+
+    - name: Enable and start systemd-timesyncd
+      ansible.builtin.systemd:
+        name: systemd-timesyncd
+        enabled: true
+        state: started
+        daemon_reload: true
+      when: common_systemd_services.timesyncd_available | bool
+
+- name: Configure DNS resolution
+  when: common_configure_dns | bool
+  tags:
+    - dns
+  block:
+    - name: Configure resolved.conf
+      ansible.builtin.lineinfile:
+        path: /etc/systemd/resolved.conf
+        regexp: "^#?DNS="
+        line: "DNS={{ common_dns_servers | join(' ') }}"
+        backup: true
+      notify: Restart systemd-resolved
+      when: common_systemd_services.resolved_available | bool
+
+    - name: Configure fallback DNS
+      ansible.builtin.lineinfile:
+        path: /etc/systemd/resolved.conf
+        regexp: "^#?FallbackDNS="
+        line: "FallbackDNS=8.8.8.8 1.1.1.1"
+        backup: true
+      notify: Restart systemd-resolved
+      when: common_systemd_services.resolved_available | bool
+
+    - name: Configure DNS servers in /etc/resolv.conf (fallback for older systems)
+      ansible.builtin.lineinfile:
+        path: /etc/resolv.conf
+        line: "nameserver {{ item }}"
+        state: present
+      loop: "{{ common_dns_servers }}"
+      when: not common_systemd_services.resolved_available | bool
+
+- name: Configure log rotation for Kubernetes
+  ansible.builtin.template:
+    src: logrotate-k8s.j2
+    dest: "/etc/logrotate.d/{{ item.name }}"
+    mode: "0644"
+  loop: "{{ common_logrotate_configs }}"
+  tags:
+    - logging
+    - logrotate
+
+- name: Create kubernetes log directory
+  ansible.builtin.file:
+    path: /var/log/kubernetes
+    state: directory
+    mode: "0755"
+  tags:
+    - logging
+
+- name: Configure basic firewall rules
+  when: common_configure_firewall | bool
+  tags:
+    - firewall
+    - security
+  block:
+    - name: Install ufw
+      ansible.builtin.apt:
+        name: ufw
+        state: present
+
+    - name: Reset ufw to defaults
+      community.general.ufw:
+        state: reset
+
+    - name: Set ufw default policies
+      community.general.ufw:
+        direction: "{{ item.direction }}"
+        policy: "{{ item.policy }}"
+      loop:
+        - { direction: "incoming", policy: "deny" }
+        - { direction: "outgoing", policy: "allow" }
+
+    - name: Allow SSH
+      community.general.ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+        comment: "SSH access"
+
+    - name: Allow loopback interface traffic
+      community.general.ufw:
+        rule: allow
+        interface: lo
+        direction: in
+        comment: "Allow loopback traffic"
+
+    - name: Enable ufw
+      community.general.ufw:
+        state: enabled
+
+- name: Verify kernel module loading
+  ansible.builtin.command: lsmod
+  register: common_loaded_modules
+  changed_when: false
+  when: ansible_virtualization_type != 'lxc'
+  tags:
+    - verify
+    - modules

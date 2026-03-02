@@ -1,0 +1,91 @@
+---
+- name: Save master join command to file
+  ansible.builtin.copy:
+    content: "{{ master_join_command }}"
+    dest: "{{ join_tokens.master_token_file }}"
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+  when:
+    - is_first_master
+    - ha_config.enabled
+    - master_join_command is defined
+    - not ansible_check_mode | bool
+  tags:
+    - k8s-master
+    - join
+
+- name: Create dummy master join command file in check mode
+  ansible.builtin.copy:
+    content: "kubeadm join --control-plane --certificate-key dummy-key"
+    dest: "{{ join_tokens.master_token_file }}"
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+  when:
+    - is_first_master
+    - ha_config.enabled
+    - ansible_check_mode | bool
+  tags:
+    - k8s-master
+    - join
+    - check_mode
+
+- name: Save worker join command to file
+  ansible.builtin.copy:
+    content: "{{ worker_join_command }}"
+    dest: "{{ join_tokens.worker_token_file }}"
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+  when:
+    - is_first_master
+    - worker_join_command is defined
+    - not ansible_check_mode | bool
+  tags:
+    - k8s-master
+    - join
+
+- name: Create dummy worker join command file in check mode
+  ansible.builtin.copy:
+    content: "kubeadm join dummy-command"
+    dest: "{{ join_tokens.worker_token_file }}"
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+  when:
+    - is_first_master
+    - ansible_check_mode | bool
+  tags:
+    - k8s-master
+    - join
+    - check_mode
+
+- name: Wait for join command file to be created
+  ansible.builtin.wait_for:
+    path: "{{ join_tokens.worker_token_file }}"
+    timeout: 300
+  delegate_to: localhost
+  become: false
+  when:
+    - is_first_master
+    - not ansible_check_mode | bool
+  tags:
+    - k8s-master
+    - join
+    - wait
+
+- name: Wait for dummy join command file in check mode
+  ansible.builtin.wait_for:
+    path: "{{ join_tokens.worker_token_file }}"
+    timeout: 1
+  delegate_to: localhost
+  become: false
+  when:
+    - is_first_master
+    - ansible_check_mode | bool
+  tags:
+    - k8s-master
+    - join
+    - wait
+    - check_mode

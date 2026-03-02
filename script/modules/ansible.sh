@@ -4,13 +4,14 @@ ANSIBLE_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${ANSIBLE_SCRIPT_DIR}/../utils/logging.sh"
 
 ANSIBLE_BASE_DIR="ansible"
-ANSIBLE_PLAYBOOK_DIR="${ANSIBLE_BASE_DIR}/playbooks"
+ANSIBLE_PLAYBOOK_DIR="${ANSIBLE_BASE_DIR}"
 ANSIBLE_INVENTORY_DIR="${ANSIBLE_BASE_DIR}/inventories"
 ANSIBLE_ROLES_DIR="${ANSIBLE_BASE_DIR}/roles"
 SUPPORTED_PLATFORMS=("aws" "proxmox")
 
 ANSIBLE_HOST_KEY_CHECKING="False"
-ANSIBLE_STDOUT_CALLBACK="yaml"
+ANSIBLE_STDOUT_CALLBACK="default"
+ANSIBLE_RESULT_FORMAT="yaml"
 ANSIBLE_CALLBACKS_ENABLED="profile_tasks"
 
 is_ansible_platform_supported() {
@@ -31,9 +32,9 @@ validate_ansible_directory() {
         return 1
     fi
 
-    if [ ! -d "$ANSIBLE_PLAYBOOK_DIR" ]; then
-        error "Ansible playbooks directory not found: $ANSIBLE_PLAYBOOK_DIR"
-        info "Create with: mkdir -p $ANSIBLE_PLAYBOOK_DIR"
+    if [ ! -f "${ANSIBLE_PLAYBOOK_DIR}/site.yaml" ]; then
+        error "Main Ansible playbook not found: ${ANSIBLE_PLAYBOOK_DIR}/site.yaml"
+        info "Ensure site.yaml exists in: $ANSIBLE_PLAYBOOK_DIR"
         return 1
     fi
 
@@ -95,6 +96,7 @@ validate_playbook() {
 set_ansible_env() {
     export ANSIBLE_HOST_KEY_CHECKING="$ANSIBLE_HOST_KEY_CHECKING"
     export ANSIBLE_STDOUT_CALLBACK="$ANSIBLE_STDOUT_CALLBACK"
+    export ANSIBLE_RESULT_FORMAT="$ANSIBLE_RESULT_FORMAT"
     export ANSIBLE_CALLBACKS_ENABLED="$ANSIBLE_CALLBACKS_ENABLED"
     export ANSIBLE_FORCE_COLOR="true"
 
@@ -102,49 +104,70 @@ set_ansible_env() {
 }
 
 run_ansible_playbook() {
-    local platform="$1"
-    local playbook="$2"
-    local extra_vars="${3:-}"
-    local tags="${4:-}"
-    local limit="${5:-}"
-    local check_mode="${6:-false}"
+  local platform="$1"
+  local playbook="$2"
+  local extra_vars="${3:-}"
+  local tags="${4:-}"
+  local limit="${5:-}"
+  local check_mode="${6:-false}"
 
-    local inventory_file="${ANSIBLE_INVENTORY_DIR}/${platform}/hosts.ini"
-    local playbook_path="${ANSIBLE_PLAYBOOK_DIR}/${playbook}"
+  local inventory_file="${ANSIBLE_INVENTORY_DIR}/${platform}/hosts.ini"
+  local playbook_path="${ANSIBLE_PLAYBOOK_DIR}/${playbook}"
 
-    step "Running Ansible playbook: $playbook for $platform"
+  step "Running Ansible playbook: $playbook for $platform"
 
-    local cmd="ansible-playbook -i $inventory_file $playbook_path"
+  local cmd="ansible-playbook -i $inventory_file $playbook_path"
 
-    if [ -n "$extra_vars" ]; then
-        cmd="$cmd --extra-vars '$extra_vars'"
-    fi
+  # Add more robust options for first-time success
+  cmd="$cmd --timeout=60 --forks=5 --ssh-extra-args='-o ConnectTimeout=30 -o ConnectionAttempts=5'"
 
-    if [ -n "$tags" ]; then
-        cmd="$cmd --tags '$tags'"
-    fi
+  if [ -n "$extra_vars" ]; then
+      cmd="$cmd --extra-vars '$extra_vars'"
+  fi
 
-    if [ -n "$limit" ]; then
-        cmd="$cmd --limit '$limit'"
-    fi
+  if [ -n "$tags" ]; then
+      cmd="$cmd --tags '$tags'"
+  fi
 
-    if [ "$check_mode" = "true" ]; then
-        cmd="$cmd --check"
-        info "Running in check mode (dry run)"
-    fi
+  if [ -n "$limit" ]; then
+      cmd="$cmd --limit '$limit'"
+  fi
 
-    debug "Executing: $cmd"
+  if [ "$check_mode" = "true" ]; then
+      cmd="$cmd --check"
+      info "Running in check mode (dry run)"
+  fi
 
-    eval $cmd
-    local exit_code=$?
+  debug "Executing: $cmd"
 
-    if [ $exit_code -eq 0 ]; then
-        success "Ansible playbook completed successfully"
-        return 0
-    else
-        error "Ansible playbook failed with exit code: $exit_code"
-        return $exit_code
-    fi
+  # Retry mechanism for the Ansible playbook
+  local max_retries=2
+  local retry_count=0
+  local exit_code=0
+
+  while [ $retry_count -le $max_retries ]; do
+      if [ $retry_count -gt 0 ]; then
+          info "Retrying Ansible playbook (attempt $((retry_count + 1))/$((max_retries + 1)))"
+          sleep 10
+      fi
+
+      eval $cmd
+      exit_code=$?
+
+      if [ $exit_code -eq 0 ]; then
+          break
+      fi
+
+      retry_count=$((retry_count + 1))
+  done
+
+  if [ $exit_code -eq 0 ]; then
+      success "Ansible playbook completed successfully"
+      return 0
+  else
+      error "Ansible playbook failed with exit code: $exit_code after $((max_retries + 1)) attempts"
+      return $exit_code
+  fi
 }
 
 ansible_ping() {
@@ -308,26 +331,36 @@ ansible_multi_platform() {
 }
 
 wait_for_hosts() {
-    local platform="$1"
-    local timeout="${2:-300}"
-    local interval="${3:-30}"
+  local platform="$1"
+  local timeout="${2:-600}"  # Increased timeout
+  local interval="${3:-30}"
 
-    step "Waiting for hosts to be ready (timeout: ${timeout}s)..."
+  step "Waiting for hosts to be ready (timeout: ${timeout}s)..."
 
-    local elapsed=0
-    while [ $elapsed -lt $timeout ]; do
-        if ansible_ping "$platform" >/dev/null 2>&1; then
-            success "All hosts are ready"
-            return 0
-        fi
+  local elapsed=0
+  local success_count=0
+  local required_success=3  # Require 3 consecutive successful pings
 
-        info "Hosts not ready yet, waiting ${interval}s... (${elapsed}/${timeout}s elapsed)"
-        sleep $interval
-        elapsed=$((elapsed + interval))
-    done
+  while [ $elapsed -lt $timeout ]; do
+      if ansible_ping "$platform" >/dev/null 2>&1; then
+          success_count=$((success_count + 1))
+          if [ $success_count -ge $required_success ]; then
+              success "All hosts are ready and stable"
+              return 0
+          else
+              info "Hosts responding, waiting for stability... ($success_count/$required_success)"
+          fi
+      else
+          success_count=0  # Reset counter on failure
+          info "Hosts not ready yet, waiting ${interval}s... (${elapsed}/${timeout}s elapsed)"
+      fi
 
-    error "Timeout waiting for hosts to be ready"
-    return 1
+      sleep $interval
+      elapsed=$((elapsed + interval))
+  done
+
+  error "Timeout waiting for hosts to be ready"
+  return 1
 }
 
 get_host_info() {

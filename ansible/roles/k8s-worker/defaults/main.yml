@@ -1,0 +1,98 @@
+---
+worker_config:
+  labels:
+    "node-role.kubernetes.io/worker": ""
+    "kubernetes.io/arch": "{{ ansible_architecture }}"
+    "kubernetes.io/os": "linux"
+  taints: []
+  system_reserved:
+    cpu: "100m"
+    memory: "512Mi"
+    ephemeral_storage: "1Gi"
+  kube_reserved:
+    cpu: "100m"
+    memory: "512Mi"
+    ephemeral_storage: "1Gi"
+
+kubelet:
+  cgroup_driver: "systemd"
+  container_runtime: "remote"
+  container_runtime_endpoint: "unix:///run/containerd/containerd.sock"
+  image_service_endpoint: "unix:///run/containerd/containerd.sock"
+  fail_swap_on: false
+  max_pods: 110
+  cluster_dns: "10.96.0.10"
+  cluster_domain: "cluster.local"
+  eviction_hard:
+    memory_available: "200Mi"
+    nodefs_available: "10%"
+    nodefs_inodes_free: "5%"
+    imagefs_available: "15%"
+  authentication_anonymous_enabled: false
+  authentication_webhook_enabled: true
+  authorization_mode: "Webhook"
+  serialize_image_pulls: false
+  max_parallel_image_pulls: 3
+  image_pull_progress_deadline: "10m"
+  log_level: 2
+  log_file: "/var/log/kubelet.log"
+  log_file_max_size: 100
+
+join_token:
+  token_file: "/tmp/kubernetes-join-command"
+  timeout: "5m"
+  discovery_token_ca_cert_hash: ""
+
+health_check:
+  enabled: true
+  timeout: 30
+  retries: 30
+  delay: 10
+  kubelet_port: 10250
+  kubelet_healthz_port: 10248
+
+firewall_rules:
+  - port: 10250
+    proto: "tcp"
+    comment: "Kubelet API"
+  - port: 30000:32767
+    proto: "tcp"
+    comment: "NodePort Services"
+  - port: 10256
+    proto: "tcp"
+    comment: "kube-proxy health check"
+
+cni:
+  config_dir: "/etc/cni/net.d"
+  bin_dir: "/opt/cni/bin"
+
+log_rotation:
+  enabled: true
+  kubelet:
+    max_size: "100M"
+    max_files: 5
+    max_age: 30
+  containers:
+    max_size: "10M"
+    max_files: 3
+    max_age: 7
+
+storage:
+  root_dir: "/var/lib/kubelet"
+  volume_plugin_dir: "/usr/libexec/kubernetes/kubelet-plugins/volume/exec/"
+  image_gc_high_threshold: 85
+  image_gc_low_threshold: 80
+  minimum_image_ttl_duration: "2m"
+
+maintenance:
+  drain_timeout: "300s"
+  drain_grace_period: "30"
+  cleanup_enabled: true
+  cleanup_schedule:
+    minute: "0"
+    hour: "2"
+    day: "*"
+    month: "*"
+    weekday: "*"
+  log_cleanup_enabled: true
+  log_retention_days: 30

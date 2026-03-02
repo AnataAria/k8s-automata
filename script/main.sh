@@ -314,69 +314,77 @@ parse_arguments() {
 
 
 execute_single_platform_workflow() {
-    local platform="$1"
-    local action="$2"
+  local platform="$1"
+  local action="$2"
 
-    info "Executing $action for platform: $platform"
+  info "Executing $action for platform: $platform"
 
-    case "$action" in
+  case "$action" in
 
-        "plan")
-            plan_deployment_workflow "$platform"
-            ;;
-        "apply")
-            full_deployment_workflow "$platform" "$PARSED_AUTO_APPROVE" "$PARSED_PLAYBOOK" "$PARSED_EXTRA_VARS" "$PARSED_TAGS"
-            ;;
-        "destroy")
-            destroy_deployment_workflow "$platform" "$PARSED_AUTO_APPROVE"
-            ;;
-        "status")
-            get_deployment_status "$platform"
-            ;;
-        "clean")
-            execute_cleanup_workflow "$platform"
-            ;;
-
-
-        "ansible")
-            if [ "$PARSED_CHECK_MODE" = "true" ]; then
-                ansible_operation "$platform" "check" "$PARSED_PLAYBOOK" "$PARSED_EXTRA_VARS"
-            else
-                ansible_operation "$platform" "run" "$PARSED_PLAYBOOK" "$PARSED_EXTRA_VARS"
-            fi
-            ;;
-        "ping")
-            ansible_operation "$platform" "ping"
-            ;;
-        "health")
-            health_check_workflow "$platform" "$PARSED_VERBOSE"
-            ;;
-        "backup")
-            backup_workflow "$platform" "$PARSED_BACKUP_TYPE"
-            ;;
-        "update")
-            update_workflow "$platform" "$PARSED_UPDATE_TYPE" "$PARSED_AUTO_APPROVE"
-            ;;
+      "plan")
+          plan_deployment_workflow "$platform"
+          ;;
+      "apply")
+          full_deployment_workflow "$platform" "$PARSED_AUTO_APPROVE" "$PARSED_PLAYBOOK" "$PARSED_EXTRA_VARS" "$PARSED_TAGS"
+          ;;
+      "destroy")
+          destroy_deployment_workflow "$platform" "$PARSED_AUTO_APPROVE"
+          ;;
+      "status")
+          get_deployment_status "$platform"
+          ;;
+      "clean")
+          execute_cleanup_workflow "$platform"
+          ;;
 
 
-        "logs")
-            log_management_workflow "$platform" "$PARSED_LOG_ACTION"
-            ;;
-        "troubleshoot")
-            troubleshooting_workflow "$platform" "$PARSED_ISSUE_TYPE"
-            ;;
-        "maintenance")
-            header "MAINTENANCE MODE: $platform"
-            info "Entering maintenance mode for $platform"
+      "ansible")
+          if [ "$PARSED_CHECK_MODE" = "true" ]; then
+              ansible_operation "$platform" "check" "$PARSED_PLAYBOOK" "$PARSED_EXTRA_VARS"
+          else
+              # Add a pre-check for OS compatibility before running ansible
+              info "Verifying OS compatibility before running Ansible..."
+              if ansible_operation "$platform" "run" "verify-os-compatibility.yaml" "$PARSED_EXTRA_VARS"; then
+                  info "OS compatibility verified, proceeding with main playbook..."
+                  ansible_operation "$platform" "run" "$PARSED_PLAYBOOK" "$PARSED_EXTRA_VARS"
+              else
+                  warn "OS compatibility check failed, but proceeding with main playbook..."
+                  ansible_operation "$platform" "run" "$PARSED_PLAYBOOK" "$PARSED_EXTRA_VARS"
+              fi
+          fi
+          ;;
+      "ping")
+          ansible_operation "$platform" "ping"
+          ;;
+      "health")
+          health_check_workflow "$platform" "$PARSED_VERBOSE"
+          ;;
+      "backup")
+          backup_workflow "$platform" "$PARSED_BACKUP_TYPE"
+          ;;
+      "update")
+          update_workflow "$platform" "$PARSED_UPDATE_TYPE" "$PARSED_AUTO_APPROVE"
+          ;;
 
-            footer
-            ;;
 
-        *)
-            error "Unknown action: $action"
-            return 1
-            ;;
-    esac
+      "logs")
+          log_management_workflow "$platform" "$PARSED_LOG_ACTION"
+          ;;
+      "troubleshoot")
+          troubleshooting_workflow "$platform" "$PARSED_ISSUE_TYPE"
+          ;;
+      "maintenance")
+          header "MAINTENANCE MODE: $platform"
+          info "Entering maintenance mode for $platform"
+
+          footer
+          ;;
+
+      *)
+          error "Unknown action: $action"
+          return 1
+          ;;
+  esac
 }
 
 

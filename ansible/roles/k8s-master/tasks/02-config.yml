@@ -1,0 +1,22 @@
+---
+- name: Generate kubeadm configuration file
+  ansible.builtin.template:
+    src: kubeadm-config.yaml.j2
+    dest: "{{ kubeadm.config_dir }}/{{ kubeadm.config_file }}"
+    mode: "0644"
+    backup: true
+  tags:
+    - k8s-master
+    - config
+
+- name: Configure firewall for master node
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.port }}"
+    proto: "{{ item.proto }}"
+    comment: "{{ item.comment }}"
+  loop: "{{ firewall_rules }}"
+  when: configure_firewall | default(true) | bool
+  tags:
+    - k8s-master
+    - firewall

@@ -1,0 +1,30 @@
+---
+
+- name: Apply master node labels
+  ansible.builtin.command: >
+    kubectl label node {{ inventory_hostname }}
+    {{ item.key }}={{ item.value }}
+    --overwrite
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  loop: "{{ master_labels | dict2items }}"
+  changed_when: false
+  when: (kubernetes_initialized is defined and kubernetes_initialized.stat.exists) or (kubeadm_init_result is defined and kubeadm_init_result is succeeded) or (master_join_result is defined and master_join_result is succeeded)
+  tags:
+    - k8s-master
+    - labels
+
+- name: Apply master node taints
+  ansible.builtin.command: >
+    kubectl taint node {{ inventory_hostname }}
+    {{ item.key }}={{ item.value | default('') }}:{{ item.effect }}
+    --overwrite
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  loop: "{{ master_taints }}"
+  changed_when: false
+  when: (kubernetes_initialized is defined and kubernetes_initialized.stat.exists) or (kubeadm_init_result is defined and kubeadm_init_result is succeeded) or (master_join_result is defined and master_join_result is succeeded)
+  failed_when: false
+  tags:
+    - k8s-master
+    - taints

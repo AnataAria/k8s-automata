@@ -1,0 +1,197 @@
+---
+kubernetes_version: "1.31.0"
+
+is_first_master: "{{ inventory_hostname == groups['masters'][0] }}"
+
+cluster_config:
+  name: "kubernetes"
+  service_subnet: "10.96.0.0/12"
+  pod_subnet: "10.244.0.0/16"
+  dns_domain: "cluster.local"
+
+loadbalancer_ip: "{{ hostvars[groups['loadbalancers'][0]]['ansible_host'] if groups['loadbalancers'] | length > 0 else '192.168.1.145' }}"
+
+control_plane_endpoint: "{{ hostvars[groups['loadbalancers'][0]]['ansible_host'] }}:6443"
+
+external_etcd:
+  enabled: true
+  endpoints: "{% for host in groups['etcds'] %}https://{{ hostvars[host]['ansible_host'] }}:2379{% if not loop.last %},{% endif %}{% endfor %}"
+  ca_file: "/etc/kubernetes/pki/etcd/ca.crt"
+  cert_file: "/etc/kubernetes/pki/apiserver-etcd-client.crt"
+  key_file: "/etc/kubernetes/pki/apiserver-etcd-client.key"
+
+api_server:
+  bind_port: 6443
+  secure_port: 6443
+  advertise_address: "{{ ansible_default_ipv4.address }}"
+  cert_sans:
+    - "{{ control_plane_endpoint.split(':')[0] }}"
+    - "{{ ansible_default_ipv4.address }}"
+    - "{{ inventory_hostname }}"
+    - "localhost"
+    - "127.0.0.1"
+    - "kubernetes"
+    - "kubernetes.default"
+    - "kubernetes.default.svc"
+    - "kubernetes.default.svc.cluster.local"
+
+  anonymous_auth: false
+  authorization_mode: "Node,RBAC"
+  enable_admission_plugins:
+    - "NodeRestriction"
+    - "ResourceQuota"
+    - "LimitRanger"
+    - "ServiceAccount"
+    - "DefaultStorageClass"
+    - "MutatingAdmissionWebhook"
+    - "ValidatingAdmissionWebhook"
+
+  audit_log_enabled: true
+  audit_log_path: "/var/log/kubernetes/audit.log"
+  audit_log_maxage: 30
+  audit_log_maxsize: 100
+  audit_log_maxbackup: 10
+
+controller_manager:
+  bind_address: "0.0.0.0"
+  secure_port: 10257
+
+  cluster_signing_cert_file: "/etc/kubernetes/pki/ca.crt"
+  cluster_signing_key_file: "/etc/kubernetes/pki/ca.key"
+
+  service_account_private_key_file: "/etc/kubernetes/pki/sa.key"
+  root_ca_file: "/etc/kubernetes/pki/ca.crt"
+
+scheduler:
+  bind_address: "0.0.0.0"
+  secure_port: 10259
+
+kubelet_config:
+  cgroup_driver: "systemd"
+  container_runtime: "remote"
+  container_runtime_endpoint: "unix:///run/containerd/containerd.sock"
+  image_service_endpoint: "unix:///run/containerd/containerd.sock"
+  fail_swap_on: false
+  max_pods: 110
+  cluster_dns: "10.96.0.10"
+  cluster_domain: "{{ cluster_config.dns_domain }}"
+
+kubeadm_config:
+  cluster_name: "{{ cluster_config.name }}"
+  service_subnet: "{{ cluster_config.service_subnet }}"
+  pod_subnet: "{{ cluster_config.pod_subnet }}"
+  api_server_bind_port: "{{ api_server.bind_port }}"
+
+kubeadm:
+  config_dir: "/etc/kubernetes/kubeadm"
+  config_file: "kubeadm-config.yaml"
+
+  skip_phases:
+    - "etcd"
+
+  upload_certs: true
+
+  certificate_key_file: "/tmp/certificate-key"
+
+cni:
+  enabled: false
+  config_dir: "/etc/cni/net.d"
+  bin_dir: "/opt/cni/bin"
+
+feature_gates:
+
+  "EphemeralContainers": true
+  "HPAScaleToZero": true
+  "ServerSideApply": true
+
+image_repository: "registry.k8s.io"
+
+master_taints:
+  - key: "node-role.kubernetes.io/control-plane"
+    effect: "NoSchedule"
+
+master_labels:
+  "node-role.kubernetes.io/control-plane": ""
+  "node-role.kubernetes.io/master": ""
+
+kubectl:
+  completion_enabled: true
+  users:
+    - name: "root"
+      home: "/root"
+    - name: "{{ ansible_user | default('ubuntu') }}"
+      home: "/home/{{ ansible_user | default('ubuntu') }}"
+
+join_tokens:
+  worker_token_file: "/tmp/kubernetes-join-command"
+  master_token_file: "/tmp/kubernetes-master-join-command"
+  token_ttl: "24h"
+
+health_check:
+  enabled: true
+  timeout: 30
+  retries: 30
+  delay: 10
+  readiness_probe_delay: 60
+
+backup:
+  enabled: true
+  config_backup_dir: "/var/backups/kubernetes"
+  pki_backup_dir: "/var/backups/kubernetes/pki"
+  retention_days: 30
+
+logging:
+  level: 2
+  max_size: "100Mi"
+  max_files: 5
+  max_age: 30
+  log_dir: "/var/log/kubernetes"
+
+security:
+  pod_security_policy_enabled: false
+  network_policy_enabled: true
+  rbac_enabled: true
+
+  service_account_issuer: "https://{{ control_plane_endpoint }}"
+  service_account_signing_key_file: "/etc/kubernetes/pki/sa.key"
+  service_account_key_file: "/etc/kubernetes/pki/sa.pub"
+
+resource_limits:
+  api_server:
+    memory: "2Gi"
+    cpu: "1000m"
+
+  controller_manager:
+    memory: "512Mi"
+    cpu: "200m"
+
+  scheduler:
+    memory: "256Mi"
+    cpu: "100m"
+
+firewall_rules:
+  - port: 6443
+    proto: "tcp"
+    comment: "Kubernetes API server"
+  - port: 2379:2380
+    proto: "tcp"
+    comment: "etcd server client API"
+  - port: 10250
+    proto: "tcp"
+    comment: "Kubelet API"
+  - port: 10259
+    proto: "tcp"
+    comment: "kube-scheduler"
+  - port: 10257
+    proto: "tcp"
+    comment: "kube-controller-manager"
+
+ha_config:
+  enabled: "{{ groups['masters'] | length > 1 }}"
+  vip_enabled: false
+  keepalived_enabled: false
+
+monitoring:
+  enabled: false
+  prometheus_enabled: false
+  metrics_server_enabled: false

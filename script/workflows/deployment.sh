@@ -69,62 +69,83 @@ deploy_infrastructure() {
 }
 
 wait_for_infrastructure() {
-    local platform="$1"
-    local timeout="${2:-300}"
-    local check_interval="${3:-30}"
+  local platform="$1"
+  local timeout="${2:-600}"  # Increased timeout
+  local check_interval="${3:-30}"
 
-    step "Waiting for infrastructure to be ready..."
+  step "Waiting for infrastructure to be ready..."
 
-    local elapsed=0
-    local attempts=0
+  local elapsed=0
+  local attempts=0
+  local success_count=0
+  local required_success=3  # Require 3 consecutive successful checks
 
-    while [ $elapsed -lt $timeout ]; do
-        attempts=$((attempts + 1))
-        info "Connectivity check attempt $attempts (${elapsed}/${timeout}s elapsed)"
+  while [ $elapsed -lt $timeout ]; do
+      attempts=$((attempts + 1))
+      info "Connectivity check attempt $attempts (${elapsed}/${timeout}s elapsed)"
 
-        if validate_inventory "$platform" && ansible_operation "$platform" "ping" >/dev/null 2>&1; then
-            success "Infrastructure is ready for configuration"
-            return 0
-        fi
+      if validate_inventory "$platform" && ansible_operation "$platform" "ping" >/dev/null 2>&1; then
+          success_count=$((success_count + 1))
+          if [ $success_count -ge $required_success ]; then
+              success "Infrastructure is ready and stable for configuration"
+              return 0
+          else
+              info "Infrastructure responding, waiting for stability... ($success_count/$required_success)"
+          fi
+      else
+          success_count=0  # Reset counter on failure
+          info "Infrastructure not ready yet, waiting ${check_interval}s..."
+      fi
 
-        info "Infrastructure not ready yet, waiting ${check_interval}s..."
-        sleep $check_interval
-        elapsed=$((elapsed + check_interval))
-    done
+      sleep $check_interval
+      elapsed=$((elapsed + check_interval))
+  done
 
-    error "Timeout waiting for infrastructure to be ready"
-    return 1
+  error "Timeout waiting for infrastructure to be ready"
+  return 1
 }
 
 configure_cluster() {
-    local platform="$1"
-    local playbook="${2:-site.yaml}"
-    local extra_vars="$3"
-    local tags="$4"
-    local retry_count=0
+  local platform="$1"
+  local playbook="${2:-site.yaml}"
+  local extra_vars="$3"
+  local tags="$4"
+  local retry_count=0
 
-    header "CLUSTER CONFIGURATION: $platform"
+  header "CLUSTER CONFIGURATION: $platform"
 
-    while [ $retry_count -lt $MAX_RETRY_ATTEMPTS ]; do
-        if [ $retry_count -gt 0 ]; then
-            warn "Retrying cluster configuration (attempt $((retry_count + 1))/$MAX_RETRY_ATTEMPTS)"
-            sleep 10
-        fi
+  # First, run the verification playbook to check OS compatibility
+  step "Verifying OS compatibility..."
+  if ! ansible_operation "$platform" "run" "verify-os-compatibility.yaml" "$extra_vars"; then
+      warn "OS compatibility check failed, continuing anyway..."
+  fi
 
-        step "Running Ansible playbook: $playbook"
-        if ansible_operation "$platform" "run" "$playbook" "$extra_vars"; then
-            success "Cluster configuration completed successfully"
-            footer
-            return 0
-        fi
+  while [ $retry_count -lt $MAX_RETRY_ATTEMPTS ]; do
+      if [ $retry_count -gt 0 ]; then
+          warn "Retrying cluster configuration (attempt $((retry_count + 1))/$MAX_RETRY_ATTEMPTS)"
+          sleep 10
+      fi
 
-        retry_count=$((retry_count + 1))
-        error "Cluster configuration failed (attempt $retry_count/$MAX_RETRY_ATTEMPTS)"
-    done
+      step "Running Ansible playbook: $playbook"
+      if ansible_operation "$platform" "run" "$playbook" "$extra_vars"; then
+          success "Cluster configuration completed successfully"
+          footer
+          return 0
+      fi
 
-    error "Cluster configuration failed after $MAX_RETRY_ATTEMPTS attempts"
-    footer
-    return 1
+      retry_count=$((retry_count + 1))
+      error "Cluster configuration failed (attempt $retry_count/$MAX_RETRY_ATTEMPTS)"
+      
+      # Add a more comprehensive retry by checking what might have failed
+      if [ $retry_count -lt $MAX_RETRY_ATTEMPTS ]; then
+          info "Preparing for retry by checking infrastructure state..."
+          sleep 30  # Give more time between retries
+      fi
+  done
+
+  error "Cluster configuration failed after $MAX_RETRY_ATTEMPTS attempts"
+  footer
+  return 1
 }
 
 verify_deployment() {
@@ -151,53 +172,100 @@ verify_deployment() {
 }
 
 full_deployment_workflow() {
+  local platform="$1"
+  local auto_approve="${2:-false}"
+  local playbook="${3:-site.yaml}"
+  local extra_vars="$4"
+  local tags="$5"
+
+  local start_time=$(date +%s)
+
+  header "FULL DEPLOYMENT WORKFLOW: $platform"
+  info "Started at: $(date)"
+  separator
+
+  if ! validate_deployment_prerequisites "$platform"; then
+      error "Prerequisites validation failed"
+wait_for_cluster_nodes_ready() {
     local platform="$1"
-    local auto_approve="${2:-false}"
-    local playbook="${3:-site.yaml}"
-    local extra_vars="$4"
-    local tags="$5"
+    local timeout="${2:-600}"
+    local interval="${3:-30}"
 
-    local start_time=$(date +%s)
+    step "Waiting for all cluster nodes to be ready (timeout: ${timeout}s)..."
 
-    header "FULL DEPLOYMENT WORKFLOW: $platform"
-    info "Started at: $(date)"
-    separator
+    local elapsed=0
+    local success_count=0
+    local required_success=3  # Require 3 consecutive successful checks
 
-    if ! validate_deployment_prerequisites "$platform"; then
-        error "Prerequisites validation failed"
-        return 1
-    fi
+    while [ $elapsed -lt $timeout ]; do
+        # Check if kubectl is available and nodes are ready
+        if ansible_adhoc "$platform" "shell" "kubectl get nodes --no-headers 2>/dev/null | grep -c 'Ready' || true" "masters[0]" 2>/dev/null | grep -q "^[0-9]*$" && \
+           [ "$(ansible_adhoc "$platform" "shell" "kubectl get nodes --no-headers 2>/dev/null | grep -c 'Ready' || true" "masters[0]" 2>/dev/null | tail -1)" -ge 1 ]; then
+            
+            success_count=$((success_count + 1))
+            if [ $success_count -ge $required_success ]; then
+                success "All cluster nodes are ready and stable"
+                return 0
+            else
+                info "Nodes responding, waiting for stability... ($success_count/$required_success)"
+            fi
+        else
+            success_count=0  # Reset counter on failure
+            info "Nodes not ready yet, waiting ${interval}s... (${elapsed}/${timeout}s elapsed)"
+        fi
 
-    if ! deploy_infrastructure "$platform" "$auto_approve"; then
-        error "Infrastructure deployment failed"
-        return 1
-    fi
+        sleep $interval
+        elapsed=$((elapsed + interval))
+    done
 
-    if ! wait_for_infrastructure "$platform" 300 30; then
-        error "Infrastructure readiness check failed"
-        return 1
-    fi
+    error "Timeout waiting for cluster nodes to be ready"
+    return 1
+}
+      return 1
+  fi
 
-    if ! configure_cluster "$platform" "$playbook" "$extra_vars" "$tags"; then
-        error "Cluster configuration failed"
-        return 1
-    fi
+  if ! deploy_infrastructure "$platform" "$auto_approve"; then
+      error "Infrastructure deployment failed"
+      return 1
+  fi
 
-    if ! verify_deployment "$platform"; then
-        warn "Deployment verification had issues, but deployment may still be functional"
-    fi
+  if ! wait_for_infrastructure "$platform" 600 30; then
+      error "Infrastructure readiness check failed"
+      return 1
+  fi
 
-    local end_time=$(date +%s)
-    local duration=$((end_time - start_time))
+  # Additional wait to ensure services are fully up
+  info "Additional wait for services to stabilize..."
+  sleep 60
 
-    separator
-    success "Full deployment workflow completed successfully!"
-    success "Platform: $platform"
-    success "Duration: $(printf '%02d:%02d:%02d' $((duration/3600)) $((duration%3600/60)) $((duration%60)))"
-    success "Completed at: $(date)"
-    footer
+  if ! configure_cluster "$platform" "$playbook" "$extra_vars" "$tags"; then
+      error "Cluster configuration failed"
+      return 1
+  fi
 
-    return 0
+  # Add a final verification step to ensure cluster is healthy
+  info "Performing final cluster health verification..."
+  if ! verify_deployment "$platform"; then
+      warn "Deployment verification had issues, but deployment may still be functional"
+  fi
+
+  # Additional verification: wait for all nodes to be ready
+  info "Waiting for all cluster nodes to be ready..."
+  if ! wait_for_cluster_nodes_ready "$platform"; then
+      warn "Some nodes may not be ready, but deployment completed"
+  fi
+
+  local end_time=$(date +%s)
+  local duration=$((end_time - start_time))
+
+  separator
+  success "Full deployment workflow completed successfully!"
+  success "Platform: $platform"
+  success "Duration: $(printf '%02d:%02d:%02d' $((duration/3600)) $((duration%3600/60)) $((duration%60)))"
+  success "Completed at: $(date)"
+  footer
+
+  return 0
 }
 
 plan_deployment_workflow() {

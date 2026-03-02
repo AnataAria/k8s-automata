@@ -1,0 +1,112 @@
+---
+etcd_version: "3.5.24"
+etcd_architecture: "amd64"
+etcd_download_url: "https://github.com/etcd-io/etcd/releases/download/v{{ etcd_version }}/etcd-v{{ etcd_version }}-linux-{{ etcd_architecture }}.tar.gz"
+
+etcd_user: "etcd"
+etcd_group: "etcd"
+
+etcd_data_dir: "/var/lib/etcd"
+etcd_config_temp_dir: "/var/kubeadm"
+etcd_config_dir: "/etc/etcd"
+etcd_cert_dir: "/etc/kubernetes/pki/etcd"
+etcd_log_dir: "/var/log/etcd"
+etcd_backup_dir: "/var/backups/etcd"
+
+etcd_cluster_name: "etcd-cluster-k8s"
+etcd_initial_cluster_state: "new"
+etcd_initial_cluster_token: "etcd-cluster-token"
+
+etcd_client_port: 2379
+etcd_peer_port: 2380
+etcd_listen_client_urls: "https://{{ ansible_default_ipv4.address }}:{{ etcd_client_port }},https://127.0.0.1:{{ etcd_client_port }}"
+etcd_advertise_client_urls: "https://{{ ansible_default_ipv4.address }}:{{ etcd_client_port }}"
+etcd_listen_peer_urls: "https://{{ ansible_default_ipv4.address }}:{{ etcd_peer_port }}"
+etcd_initial_advertise_peer_urls: "https://{{ ansible_default_ipv4.address }}:{{ etcd_peer_port }}"
+
+etcd_heartbeat_interval: 1000
+etcd_election_timeout: 5000
+etcd_quota_backend_bytes: 8589934592
+etcd_max_request_bytes: 33554432
+etcd_grpc_keepalive_min_time: "30s"
+etcd_grpc_keepalive_interval: "5s"
+etcd_grpc_keepalive_timeout: "3s"
+etcd_snapshot_count: 10000
+etcd_auto_compaction_retention: "3"
+etcd_auto_compaction_mode: "periodic"
+
+etcd_client_cert_auth: true
+etcd_peer_client_cert_auth: true
+etcd_trusted_ca_file: "{{ etcd_cert_dir }}/ca.crt"
+etcd_cert_file: "{{ etcd_cert_dir }}/server.crt"
+etcd_key_file: "{{ etcd_cert_dir }}/server.key"
+etcd_peer_trusted_ca_file: "{{ etcd_cert_dir }}/ca.crt"
+etcd_peer_cert_file: "{{ etcd_cert_dir }}/peer.crt"
+etcd_peer_key_file: "{{ etcd_cert_dir }}/peer.key"
+
+etcd_log_level: "info"
+etcd_logger: "zap"
+etcd_log_outputs: "stderr"
+
+etcd_systemd_config:
+  restart: "always"
+  restart_sec: "10s"
+  limit_nofile: "65536"
+  limit_core: "infinity"
+  limit_memlock: "infinity"
+  oom_score_adjust: "-999"
+
+etcd_backup:
+  enabled: true
+  schedule: "0 2 * * *"
+  retention_days: 7
+  compression: true
+  encryption: false
+
+etcd_maintenance:
+  defrag_enabled: true
+  defrag_schedule: "0 3 * * 0"
+  defrag_timeout: "30m"
+  compact_enabled: true
+  compact_schedule: "0 1 * * *"
+  compact_retention: "1000"
+
+etcd_monitoring:
+  enabled: true
+  metrics_urls: "http://127.0.0.1:2381/metrics"
+  health_check_enabled: true
+  health_check_interval: "30s"
+
+etcd_firewall_rules:
+  - port: "{{ etcd_client_port }}"
+    proto: "tcp"
+    comment: "etcd client API"
+  - port: "{{ etcd_peer_port }}"
+    proto: "tcp"
+    comment: "etcd peer communication"
+
+etcd_resource_limits:
+  memory_limit: "4Gi"
+  cpu_limit: "2"
+  disk_space_min: "10Gi"
+
+etcd_network_access:
+  allowed_networks:
+    - "127.0.0.1/32"
+    - "{{ ansible_default_ipv4.network }}/{{ ansible_default_ipv4.netmask }}"
+
+etcd_disaster_recovery:
+  snapshot_enabled: true
+  snapshot_interval: "24h"
+  restore_script_enabled: true
+
+etcd_health_thresholds:
+  max_latency_ms: 100
+  max_failed_requests: 10
+  max_memory_usage_percent: 80
+  max_disk_usage_percent: 85
+
+etcd_cert_management:
+  auto_renew: false
+  cert_validity_days: 365
+  ca_validity_days: 3650

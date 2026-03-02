@@ -1,0 +1,52 @@
+---
+apiVersion: "kubeadm.k8s.io/v1beta4"
+kind: InitConfiguration
+nodeRegistration:
+  name: {{ inventory_hostname }}
+localAPIEndpoint:
+  advertiseAddress: {{ ansible_host }}
+  bindPort: 6443
+---
+apiVersion: "kubeadm.k8s.io/v1beta4"
+kind: ClusterConfiguration
+certificatesDir: "/etc/kubernetes/pki"
+clusterName: {{ cluster_name }}
+{% set full_version = (k8s_version | default('1.31.0')) | string | regex_replace('^v', '') %}
+{% if full_version.split('.') | length == 2 %}
+{% set full_version = full_version ~ '.0' %}
+{% endif %}
+kubernetesVersion: "v{{ full_version }}"
+controlPlaneEndpoint: "{{ control_plane_endpoint }}"
+networking:
+  serviceSubnet: "{{ service_subnet | default('10.96.0.0/12') }}"
+  podSubnet: "{{ pod_subnet | default('10.244.0.0/16') }}"
+etcd:
+  external:
+    endpoints:
+{% for host in groups['etcds'] %}
+    - "https://{{ hostvars[host]['ansible_host'] }}:2379"
+{% endfor %}
+    caFile: "/etc/kubernetes/pki/etcd/ca.crt"
+    certFile: "/etc/kubernetes/pki/apiserver-etcd-client.crt"
+    keyFile: "/etc/kubernetes/pki/apiserver-etcd-client.key"
+apiServer:
+  extraArgs:
+    - name: "etcd-servers"
+      value: "{% for host in groups['etcds'] %}https://{{ hostvars[host]['ansible_host'] }}:2379{% if not loop.last %},{% endif %}{% endfor %}"
+    - name: "etcd-cafile"
+      value: "/etc/kubernetes/pki/etcd/ca.crt"
+    - name: "etcd-certfile"
+      value: "/etc/kubernetes/pki/apiserver-etcd-client.crt"
+    - name: "etcd-keyfile"
+      value: "/etc/kubernetes/pki/apiserver-etcd-client.key"
+  certSANs:
+  - "{{ ansible_host }}"
+  - "{{ inventory_hostname }}"
+{% if groups['loadbalancers'] is defined %}
+{% for host in groups['loadbalancers'] %}
+  - "{{ hostvars[host]['ansible_host'] }}"
+{% endfor %}
+{% endif %}
+  - "127.0.0.1"
+  - "localhost"
+  - "{{ cluster_name }}.local"

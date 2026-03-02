@@ -1,0 +1,34 @@
+---
+apiVersion: "kubeadm.k8s.io/v1beta4"
+kind: InitConfiguration
+nodeRegistration:
+    name: {{ inventory_hostname }}
+localAPIEndpoint:
+    advertiseAddress: {{ ansible_host }}
+---
+apiVersion: "kubeadm.k8s.io/v1beta4"
+kind: ClusterConfiguration
+etcd:
+    local:
+        serverCertSANs:
+        - "{{ ansible_host }}"
+        - "{{ inventory_hostname }}"
+        peerCertSANs:
+        - "{{ ansible_host }}"
+        - "{{ inventory_hostname }}"
+        extraArgs:
+        - name: initial-cluster
+          value: >-
+            {% for host in groups['etcds'] %}{{ host }}=https://{{ hostvars[host]['ansible_host'] }}:{{ etcd_peer_port }}{% if not loop.last %},{% endif %}{% endfor %}
+        - name: initial-cluster-state
+          value: {{ etcd_initial_cluster_state }}
+        - name: name
+          value: {{ inventory_hostname }}
+        - name: listen-peer-urls
+          value: https://{{ ansible_host }}:{{ etcd_peer_port }}
+        - name: listen-client-urls
+          value: https://{{ ansible_host }}:{{ etcd_client_port }},https://127.0.0.1:{{ etcd_client_port }}
+        - name: advertise-client-urls
+          value: https://{{ ansible_host }}:{{ etcd_client_port }}
+        - name: initial-advertise-peer-urls
+          value: https://{{ ansible_host }}:{{ etcd_peer_port }}

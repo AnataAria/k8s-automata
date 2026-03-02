@@ -1,0 +1,23 @@
+/var/log/containers/*.log {
+    size {{ log_rotation.containers.max_size }}
+    daily
+    rotate {{ log_rotation.containers.max_files }}
+    maxage {{ log_rotation.containers.max_age }}
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
+
+/var/log/pods/**/*.log {
+    size {{ log_rotation.containers.max_size }}
+    daily
+    rotate {{ log_rotation.containers.max_files }}
+    maxage {{ log_rotation.containers.max_age }}
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}

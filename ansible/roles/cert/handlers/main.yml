@@ -1,0 +1,25 @@
+---
+- name: Restart etcd
+  ansible.builtin.systemd:
+    name: etcd
+    state: restarted
+    daemon_reload: true
+  when: inventory_hostname in groups['etcds']
+
+- name: Restart kubelet
+  ansible.builtin.systemd:
+    name: kubelet
+    state: restarted
+    daemon_reload: true
+  when: inventory_hostname in groups['masters'] or inventory_hostname in groups['workers']
+
+- name: Restart kube-apiserver
+  ansible.builtin.systemd:
+    name: kube-apiserver
+    state: restarted
+    daemon_reload: true
+  when: inventory_hostname in groups['masters']
+
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true

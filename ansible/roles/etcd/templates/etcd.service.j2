@@ -1,0 +1,39 @@
+[Unit]
+Description=etcd key-value store
+Documentation=https://github.com/etcd-io/etcd
+After=network.target
+
+[Service]
+Type=notify
+User={{ etcd_user }}
+Group={{ etcd_group }}
+EnvironmentFile=-/etc/default/etcd
+ExecStart=/usr/local/bin/etcd \
+  --name={{ inventory_hostname }} \
+  --data-dir={{ etcd_data_dir }} \
+  --listen-client-urls=https://{{ ansible_host }}:{{ etcd_client_port }},https://127.0.0.1:{{ etcd_client_port }} \
+  --listen-peer-urls=https://{{ ansible_host }}:{{ etcd_peer_port }} \
+  --advertise-client-urls=https://{{ ansible_host }}:{{ etcd_client_port }} \
+  --initial-advertise-peer-urls=https://{{ ansible_host }}:{{ etcd_peer_port }} \
+  --initial-cluster={% for host in groups['etcds'] %}{{ host }}=https://{{ hostvars[host]['ansible_host'] }}:{{ etcd_peer_port }}{% if not loop.last %},{% endif %}{% endfor %} \
+  --initial-cluster-state={{ etcd_initial_cluster_state }} \
+  --initial-cluster-token={{ etcd_initial_cluster_token }} \
+  --client-cert-auth={{ etcd_client_cert_auth | lower }} \
+  --trusted-ca-file={{ etcd_trusted_ca_file }} \
+  --cert-file={{ etcd_cert_file }} \
+  --key-file={{ etcd_key_file }} \
+  --peer-client-cert-auth={{ etcd_peer_client_cert_auth | lower }} \
+  --peer-trusted-ca-file={{ etcd_peer_trusted_ca_file }} \
+  --peer-cert-file={{ etcd_peer_cert_file }} \
+  --peer-key-file={{ etcd_peer_key_file }} \
+  --heartbeat-interval=1000 \
+  --election-timeout=5000
+Restart={{ etcd_systemd_config.restart }}
+RestartSec={{ etcd_systemd_config.restart_sec }}
+LimitNOFILE={{ etcd_systemd_config.limit_nofile }}
+LimitCORE={{ etcd_systemd_config.limit_core }}
+LimitMEMLOCK={{ etcd_systemd_config.limit_memlock }}
+OOMScoreAdjust={{ etcd_systemd_config.oom_score_adjust }}
+
+[Install]
+WantedBy=multi-user.target

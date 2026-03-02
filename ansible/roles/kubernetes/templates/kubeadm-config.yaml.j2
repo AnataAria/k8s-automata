@@ -1,0 +1,79 @@
+---
+{% if inventory_hostname in groups['masters'] %}
+{% if inventory_hostname == groups['masters'][0] %}
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+nodeRegistration:
+  name: {{ inventory_hostname }}
+  criSocket: {{ kubelet_config.container_runtime_endpoint }}
+  kubeletExtraArgs:
+    cgroup-driver: {{ kubelet_config.cgroup_driver }}
+    fail-swap-on: "{{ kubelet_config.fail_swap_on | lower }}"
+localAPIEndpoint:
+  advertiseAddress: {{ ansible_default_ipv4.address }}
+  bindPort: {{ kubeadm_config.api_server_bind_port }}
+---
+{% endif %}
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+clusterName: {{ kubeadm_config.cluster_name }}
+kubernetesVersion: v{{ kubernetes_version }}
+controlPlaneEndpoint: {{ loadbalancer_ip }}:{{ kubeadm_config.api_server_bind_port }}
+networking:
+  serviceSubnet: {{ kubeadm_config.service_subnet }}
+  podSubnet: {{ kubeadm_config.pod_subnet }}
+etcd:
+  external:
+    endpoints:
+{% for host in groups['etcds'] %}
+    - https://{{ hostvars[host]['ansible_host'] }}:2379
+{% endfor %}
+    caFile: /etc/kubernetes/pki/etcd/ca.crt
+    certFile: /etc/kubernetes/pki/apiserver-etcd-client.crt
+    keyFile: /etc/kubernetes/pki/apiserver-etcd-client.key
+apiServer:
+  certSANs:
+  - {{ loadbalancer_ip }}
+{% for host in groups['masters'] %}
+  - {{ hostvars[host]['ansible_host'] }}
+  - {{ host }}
+{% endfor %}
+  extraArgs:
+    authorization-mode: Node,RBAC
+controllerManager:
+  extraArgs:
+    bind-address: 0.0.0.0
+scheduler:
+  extraArgs:
+    bind-address: 0.0.0.0
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: KubeletConfiguration
+cgroupDriver: {{ kubelet_config.cgroup_driver }}
+failSwapOn: {{ kubelet_config.fail_swap_on | lower }}
+containerRuntimeEndpoint: {{ kubelet_config.container_runtime_endpoint }}
+serverTLSBootstrap: true
+{% endif %}
+{% if inventory_hostname in groups['workers'] %}
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: JoinConfiguration
+nodeRegistration:
+  name: {{ inventory_hostname }}
+  criSocket: {{ kubelet_config.container_runtime_endpoint }}
+  kubeletExtraArgs:
+    cgroup-driver: {{ kubelet_config.cgroup_driver }}
+    fail-swap-on: "{{ kubelet_config.fail_swap_on | lower }}"
+discovery:
+  bootstrapToken:
+    apiServerEndpoint: {{ loadbalancer_ip }}:{{ kubeadm_config.api_server_bind_port }}
+    token: ""
+    caCertHashes: []
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: KubeletConfiguration
+cgroupDriver: {{ kubelet_config.cgroup_driver }}
+failSwapOn: {{ kubelet_config.fail_swap_on | lower }}
+containerRuntimeEndpoint: {{ kubelet_config.container_runtime_endpoint }}
+serverTLSBootstrap: true
+{% endif %}

@@ -1,0 +1,9 @@
+{{ item.path }} {
+{% for option in item.options %}
+    {{ option }}
+{% endfor %}
+    create 644 root root
+    postrotate
+        /bin/systemctl reload rsyslog > /dev/null 2>&1 || true
+    endscript
+}

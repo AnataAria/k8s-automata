@@ -12,6 +12,13 @@ output "worker_ips" {
   ]
 }
 
+output "etcd_ips" {
+  description = "IP address of etcd node"
+  value = [
+    for i in range(var.etcd_vm_config.vm_count) : "${var.etcd_vm_config.ip_base}.${i + var.etcd_vm_config.ip_offset}"
+  ]
+}
+
 output "loadbalancer_ip" {
   description = "IP address of the load balancer"
   value       = var.lxc_gateways.ipv4
@@ -27,6 +34,11 @@ output "worker_names" {
   value       = proxmox_vm_qemu.k8s_workers[*].name
 }
 
+output "etcd_names" {
+  description = "Names of ectd VMs"
+  value       = proxmox_vm_qemu.k8s_etcds[*].name
+}
+
 output "loadbalancer_name" {
   description = "Name of the load balancer container"
   value       = proxmox_lxc.k8s_loadbalancer.hostname
@@ -38,8 +50,10 @@ output "cluster_summary" {
     cluster_name    = var.cluster_name
     master_count    = var.master_vm_config.vm_count
     worker_count    = var.worker_vm_config.vm_count
+    etcd_count      = var.etcd_vm_config.vm_count
     master_ips      = [for i in range(var.master_vm_config.vm_count) : "${var.master_vm_config.ip_base}.${i + var.master_vm_config.ip_offset}"]
     worker_ips      = [for i in range(var.worker_vm_config.vm_count) : "${var.worker_vm_config.ip_base}.${i + var.worker_vm_config.ip_offset}"]
+    etcd_ips        = [for i in range(var.etcd_vm_config.vm_count) : "${var.etcd_vm_config.ip_base}.${i + var.etcd_vm_config.ip_offset}"]
     loadbalancer_ip = var.lxc_gateways.ipv4
   }
 }

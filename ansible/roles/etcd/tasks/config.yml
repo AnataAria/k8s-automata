@@ -1,0 +1,89 @@
+---
+- name: Create etcd config temp directory
+  ansible.builtin.file:
+    path: "{{ etcd_config_temp_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags:
+    - etcd
+    - config
+
+- name: Generate kubeadm etcd configuration
+  ansible.builtin.template:
+    src: etcd-kubeadmcfg.yaml.j2
+    dest: "{{ etcd_config_temp_dir }}/kubeadmcfg.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  tags:
+    - etcd
+    - config
+
+- name: Ensure etcd data directory has proper ownership
+  ansible.builtin.file:
+    path: "{{ etcd_data_dir }}"
+    owner: "{{ etcd_user }}"
+    group: "{{ etcd_group }}"
+    mode: "0700"
+    recurse: true
+  tags:
+    - etcd
+    - permissions
+
+- name: Set proper ownership for etcd certificates
+  ansible.builtin.file:
+    path: "{{ etcd_cert_dir }}"
+    owner: "{{ etcd_user }}"
+    group: "{{ etcd_group }}"
+    recurse: true
+  tags:
+    - etcd
+    - permissions
+    - certificates
+
+- name: Configure etcd systemd service
+  ansible.builtin.template:
+    src: etcd.service.j2
+    dest: /etc/systemd/system/etcd.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart etcd
+  tags:
+    - etcd
+    - service
+
+- name: Configure firewall for etcd peer communication (allow any IP)
+  community.general.ufw:
+    rule: allow
+    direction: in
+    interface: eth0
+    port: "{{ etcd_peer_port | string }}"
+    proto: tcp
+    comment: "etcd peer communication from any IP"
+  tags:
+    - etcd
+    - firewall
+
+- name: Configure firewall for etcd client API (allow any IP)
+  community.general.ufw:
+    rule: allow
+    direction: in
+    interface: eth0
+    port: "{{ etcd_client_port | string }}"
+    proto: tcp
+    comment: "etcd client API from any IP"
+  tags:
+    - etcd
+    - firewall
+
+- name: Configure logrotate for etcd logs
+  ansible.builtin.template:
+    src: etcd-logrotate.j2
+    dest: /etc/logrotate.d/etcd
+    mode: "0644"
+  tags:
+    - etcd
+    - logging

@@ -1,39 +1,94 @@
-- name: Add Kubernetes GPG key
+---
+- name: Install Kubernetes prerequisites
   ansible.builtin.apt:
-    update_cache: false
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gpg
     state: present
-    pkg: apt-transport-https
-  register: kubernetes_apt_https
-- name: Ensure Kubernetes GPG key is added
-  ansible.builtin.apt_key:
-    url: https://pkgs.k8s.io/core:/stable:/v1.34/deb/Release.key
-    state: present
-- name: Add Kubernetes repository
-  ansible.builtin.apt_repository:
-    repo: "deb https://pkgs.k8s.io/core:/stable:/v1.34/deb/ /"
-    state: present
-    filename: kubernetes
-- name: Update apt package cache
-  ansible.builtin.apt:
     update_cache: true
+  tags:
+    - kubernetes
+
+- name: Create apt keyrings directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+  tags:
+    - kubernetes
+
+- name: Add Kubernetes APT signing key
+  ansible.builtin.shell: |
+    set -o pipefail
+    curl -fsSL https://pkgs.k8s.io/core:/stable:/v{{ k8s_version }}/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+  args:
+    creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+    executable: /bin/bash
+  tags:
+    - kubernetes
+
+- name: Add Kubernetes APT repository
+  ansible.builtin.lineinfile:
+    path: /etc/apt/sources.list.d/kubernetes.list
+    line: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v{{ k8s_version }}/deb/ /"
+    create: true
+    mode: "0644"
+  tags:
+    - kubernetes
+
+- name: Unhold Kubernetes packages to allow upgrades
+  ansible.builtin.command: apt-mark unhold {{ item }}
+  loop:
+    - kubelet
+    - kubeadm
+    - kubectl
+  ignore_errors: true
+  changed_when: false
+  tags:
+    - kubernetes
+
 - name: Install Kubernetes packages
   ansible.builtin.apt:
     name:
       - kubelet
       - kubeadm
       - kubectl
-    state: present
+    state: latest
+    update_cache: true
+  tags:
+    - kubernetes
+
 - name: Hold Kubernetes packages
-  ansible.builtin.dpkg_selections:
-    name: "{{ item }}"
-    selection: hold
+  ansible.builtin.command: apt-mark hold {{ item }}
   loop:
     - kubelet
     - kubeadm
     - kubectl
-- name: Start and enable kubelet
-  ansible.builtin.systemd:
-    name: kubelet
-    enabled: true
-    state: started
-    daemon_reload: true
+  changed_when: false
+  tags:
+    - kubernetes
+
+- name: Configure firewall for Kubernetes
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.port }}"
+    proto: "{{ item.proto }}"
+    comment: "{{ item.comment }}"
+  loop:
+    - { port: "6443", proto: "tcp", comment: "Kubernetes API server" }
+    - { port: "10250", proto: "tcp", comment: "Kubelet API" }
+    - { port: "10259", proto: "tcp", comment: "kube-scheduler" }
+    - { port: "10257", proto: "tcp", comment: "kube-controller-manager" }
+  when: kubernetes_configure_firewall | default(true) | bool
+  tags:
+    - kubernetes
+    - firewall
+
+- name: Wait for containerd socket
+  ansible.builtin.wait_for:
+    path: /run/containerd/containerd.sock
+    timeout: 60
+  tags:
+    - kubernetes

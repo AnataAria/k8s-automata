@@ -18,7 +18,7 @@ master_vm_config = {
   vm_count      = 2
   cpu_core      = 2
   cpu_socket    = 2
-  cpu_type      = 0
+  cpu_type      = x86-64-v2-AES
   memory        = 4096
   os_type       = "cloud-init"
   qemu_os       = "l26"
@@ -34,7 +34,23 @@ worker_vm_config = {
   vm_count      = 3
   cpu_core      = 4
   cpu_socket    = 2
-  cpu_type      = 0
+  cpu_type      = x86-64-v2-AES
+  memory        = 8192
+  os_type       = "cloud-init"
+  qemu_os       = "l26"
+  bios          = "ovmf"
+  ip_offset     = 0
+  disk_size     = 64
+  id_offset     = 900
+}
+
+etcd_vm_config = {
+  template_name = "debian12-cloudinit"
+  ip_base       = "192.168.1.132"
+  vm_count      = 3
+  cpu_core      = 4
+  cpu_socket    = 2
+  cpu_type      = x86-64-v2-AES
   memory        = 8192
   os_type       = "cloud-init"
   qemu_os       = "l26"
@@ -45,10 +61,18 @@ worker_vm_config = {
 }
 
 lxc_gateways = {
+  id = 100
   template = "local:vztmpl/ubuntu-22.04-standard_22.04-1_amd64.tar.zst"
   hostname = "k8s-gateway"
   ipv4     = "192.168.1.102"
+  subnet   = 24
   cpu      = 2
   memory   = 4096
   swap     = 0
+}
+
+k8s_config = {
+  k8s_version  = "1.34"
+  etcd_version = "3.6"
+  etcd_ha      = true
 }

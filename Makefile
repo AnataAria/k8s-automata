@@ -65,6 +65,75 @@ proxmox-ansible: ## Run Ansible on existing Proxmox infrastructure
 proxmox-ping: ## Test connectivity to Proxmox hosts
 	./script/main.sh proxmox ping
 
+lb-deploy: ## Deploy load balancers only
+	cd ansible && ansible-playbook -i inventories/$(PLATFORM)/hosts.ini playbooks/setup-loadbalancer.yaml
+
+lb-deploy-aws: ## Deploy AWS load balancers
+	cd ansible && ansible-playbook -i inventories/aws/hosts.ini playbooks/setup-loadbalancer.yaml
+
+lb-deploy-proxmox: ## Deploy Proxmox load balancers
+	cd ansible && ansible-playbook -i inventories/proxmox/hosts.ini playbooks/setup-loadbalancer.yaml
+
+lb-health: ## Check load balancer health
+	cd ansible && ansible loadbalancers -i inventories/$(PLATFORM)/hosts.ini -m shell -a "/usr/local/bin/lb-health-check.sh --verbose" -b
+
+lb-health-aws: ## Check AWS load balancer health
+	cd ansible && ansible loadbalancers -i inventories/aws/hosts.ini -m shell -a "/usr/local/bin/lb-health-check.sh --verbose" -b
+
+lb-health-proxmox: ## Check Proxmox load balancer health
+	cd ansible && ansible loadbalancers -i inventories/proxmox/hosts.ini -m shell -a "/usr/local/bin/lb-health-check.sh --verbose" -b
+
+lb-restart: ## Restart Envoy service on load balancers
+	cd ansible && ansible loadbalancers -i inventories/$(PLATFORM)/hosts.ini -m systemd -a "name=envoy state=restarted" -b
+
+lb-restart-aws: ## Restart AWS load balancers
+	cd ansible && ansible loadbalancers -i inventories/aws/hosts.ini -m systemd -a "name=envoy state=restarted" -b
+
+lb-restart-proxmox: ## Restart Proxmox load balancers
+	cd ansible && ansible loadbalancers -i inventories/proxmox/hosts.ini -m systemd -a "name=envoy state=restarted" -b
+
+lb-status: ## Show load balancer status
+	cd ansible && ansible loadbalancers -i inventories/$(PLATFORM)/hosts.ini -m systemd -a "name=envoy" -b
+
+lb-status-aws: ## Show AWS load balancer status
+	cd ansible && ansible loadbalancers -i inventories/aws/hosts.ini -m systemd -a "name=envoy" -b
+
+lb-status-proxmox: ## Show Proxmox load balancer status
+	cd ansible && ansible loadbalancers -i inventories/proxmox/hosts.ini -m systemd -a "name=envoy" -b
+
+lb-logs: ## View load balancer logs
+	cd ansible && ansible loadbalancers -i inventories/$(PLATFORM)/hosts.ini -m shell -a "journalctl -u envoy --no-pager -n 50" -b
+
+lb-logs-aws: ## View AWS load balancer logs
+	cd ansible && ansible loadbalancers -i inventories/aws/hosts.ini -m shell -a "journalctl -u envoy --no-pager -n 50" -b
+
+lb-logs-proxmox: ## View Proxmox load balancer logs
+	cd ansible && ansible loadbalancers -i inventories/proxmox/hosts.ini -m shell -a "journalctl -u envoy --no-pager -n 50" -b
+
+lb-config: ## View current Envoy configuration
+	cd ansible && ansible loadbalancers -i inventories/$(PLATFORM)/hosts.ini -m shell -a "cat /etc/envoy/envoy.yaml" -b
+
+lb-config-aws: ## View AWS Envoy configuration
+	cd ansible && ansible loadbalancers -i inventories/aws/hosts.ini -m shell -a "cat /etc/envoy/envoy.yaml" -b
+
+lb-config-proxmox: ## View Proxmox Envoy configuration
+	cd ansible && ansible loadbalancers -i inventories/proxmox/hosts.ini -m shell -a "cat /etc/envoy/envoy.yaml" -b
+
+lb-admin: ## Access Envoy admin interface info
+	cd ansible && ansible loadbalancers -i inventories/$(PLATFORM)/hosts.ini -m uri -a "url=http://127.0.0.1:9901/stats method=GET return_content=yes"
+
+lb-clusters: ## Show Envoy cluster status
+	cd ansible && ansible loadbalancers -i inventories/$(PLATFORM)/hosts.ini -m uri -a "url=http://127.0.0.1:9901/clusters method=GET return_content=yes"
+
+lb-ping: ## Test connectivity to load balancers
+	cd ansible && ansible loadbalancers -i inventories/$(PLATFORM)/hosts.ini -m ping
+
+lb-ping-aws: ## Test connectivity to AWS load balancers
+	cd ansible && ansible loadbalancers -i inventories/aws/hosts.ini -m ping
+
+lb-ping-proxmox: ## Test connectivity to Proxmox load balancers
+	cd ansible && ansible loadbalancers -i inventories/proxmox/hosts.ini -m ping
+
 both-plan: ## Plan infrastructure on both platforms
 	./script/main.sh both plan
 
@@ -154,3 +223,11 @@ monitor: ## Show monitoring information
 
 quick-proxmox: setup-proxmox proxmox-apply ## Quick setup and deploy Proxmox
 quick-aws: setup-aws aws-apply ## Quick setup and deploy AWS
+
+full-deploy-proxmox: ## Full Proxmox deployment including load balancers
+	make proxmox-apply && make lb-deploy-proxmox && make lb-health-proxmox
+
+full-deploy-aws: ## Full AWS deployment including load balancers
+	make aws-apply && make lb-deploy-aws && make lb-health-aws
+
+PLATFORM ?= proxmox
