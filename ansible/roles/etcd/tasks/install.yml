@@ -1,113 +1,58 @@
 ---
-- name: Create etcd user and group
-  ansible.builtin.group:
-    name: "{{ etcd_group }}"
-    state: present
-  tags:
-    - etcd
-    - user
-
-- name: Create etcd user
-  ansible.builtin.user:
-    name: "{{ etcd_user }}"
-    group: "{{ etcd_group }}"
-    system: true
-    shell: /bin/false
-    home: "{{ etcd_data_dir }}"
-    create_home: false
-    state: present
-  tags:
-    - etcd
-    - user
-
-- name: Create etcd directories
-  ansible.builtin.file:
-    path: "{{ item.path }}"
-    state: directory
-    owner: "{{ etcd_user }}"
-    group: "{{ etcd_group }}"
-    mode: "{{ item.mode }}"
-  loop:
-    - { path: "{{ etcd_data_dir }}", mode: "0700" }
-    - { path: "{{ etcd_config_dir }}", mode: "0755" }
-    - { path: "{{ etcd_log_dir }}", mode: "0755" }
-    - { path: "{{ etcd_backup_dir }}", mode: "0755" }
-
-- name: Create Kubernetes PKI directory structure
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
-  loop:
-    - /etc/kubernetes
-    - /etc/kubernetes/pki
-    - "{{ etcd_cert_dir }}"
-  tags:
-    - etcd
-    - directories
-
-- name: Check installed etcd version
-  ansible.builtin.command: /usr/local/bin/etcd --version
-  register: installed_etcd_version
-  ignore_errors: true
+- name: Check current etcd version
+  ansible.builtin.command: "{{ etcd_bin_dir }}/etcd --version"
+  register: etcd_installed_version
   changed_when: false
-  tags:
-    - etcd
-    - check
+  failed_when: false
 
-- name: Set etcd install flags
+- name: Parse installed version
   ansible.builtin.set_fact:
-    install_etcd: "{{ installed_etcd_version.failed or etcd_version not in installed_etcd_version.stdout }}"
-  tags:
-    - etcd
-    - check
+    etcd_current_version: >-
+      {{ etcd_installed_version.stdout
+         | regex_search('etcd Version:\s+([\d.]+)', '\1')
+         | first | default('none') }}
+  when: etcd_installed_version.rc == 0
 
-- name: Download etcd binary
+- name: Set version to none if not installed
+  ansible.builtin.set_fact:
+    etcd_current_version: "none"
+  when: etcd_installed_version.rc != 0
+
+- name: Download etcd archive
   ansible.builtin.get_url:
-    url: "{{ etcd_download_url }}"
-    dest: /tmp/etcd.tar.gz
+    url: "https://github.com/etcd-io/etcd/releases/download/v{{ etcd_version }}/etcd-v{{ etcd_version }}-linux-amd64.tar.gz"
+    dest: "{{ etcd_download_dir }}/etcd-v{{ etcd_version }}-linux-amd64.tar.gz"
     mode: "0644"
-    timeout: 300
-  when: install_etcd
-  tags:
-    - etcd
-    - download
+  when: etcd_current_version != etcd_version
 
-- name: Extract etcd binary
+- name: Extract etcd archive
   ansible.builtin.unarchive:
-    src: /tmp/etcd.tar.gz
-    dest: /tmp
+    src: "{{ etcd_download_dir }}/etcd-v{{ etcd_version }}-linux-amd64.tar.gz"
+    dest: "{{ etcd_download_dir }}"
     remote_src: true
-    creates: "/tmp/etcd-v{{ etcd_version }}-linux-{{ etcd_architecture }}/etcd"
-  when: install_etcd
-  tags:
-    - etcd
-    - install
+    creates: "{{ etcd_download_dir }}/etcd-v{{ etcd_version }}-linux-amd64/etcd"
+  when: etcd_current_version != etcd_version
 
-- name: Install etcd binaries
+- name: Copy etcd binaries
   ansible.builtin.copy:
-    src: "/tmp/etcd-v{{ etcd_version }}-linux-{{ etcd_architecture }}/{{ item }}"
-    dest: "/usr/local/bin/{{ item }}"
+    src: "{{ etcd_download_dir }}/etcd-v{{ etcd_version }}-linux-amd64/{{ item }}"
+    dest: "{{ etcd_bin_dir }}/{{ item }}"
     mode: "0755"
-    owner: root
-    group: root
     remote_src: true
   loop:
     - etcd
     - etcdctl
     - etcdutl
-  when: install_etcd
   notify: restart etcd
-  tags:
-    - etcd
-    - install
+  when: etcd_current_version != etcd_version
 
-- name: Install cron package
-  ansible.builtin.package:
-    name: cron
-    state: present
-  tags:
-    - etcd
-    - cron
+- name: Verify etcd binary
+  ansible.builtin.command: "{{ etcd_bin_dir }}/etcd --version"
+  register: etcd_version_check
+  changed_when: false
+  failed_when: etcd_version not in etcd_version_check.stdout
+
+- name: Clean up download archive
+  ansible.builtin.file:
+    path: "{{ etcd_download_dir }}/etcd-v{{ etcd_version }}-linux-amd64.tar.gz"
+    state: absent

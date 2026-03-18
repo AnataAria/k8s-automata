@@ -1,36 +1,44 @@
 ---
-- name: Install etcd binaries and dependencies
+- name: Create etcd system group
+  ansible.builtin.group:
+    name: etcd
+    system: true
+    state: present
+
+- name: Create etcd system user
+  ansible.builtin.user:
+    name: etcd
+    group: etcd
+    system: true
+    shell: /sbin/nologin
+    home: "{{ etcd_data_dir }}"
+    create_home: false
+    state: present
+
+- name: Create etcd directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: etcd
+    group: etcd
+    mode: "0700"
+  loop:
+    - "{{ etcd_data_dir }}"
+    - "{{ etcd_cert_dir }}"
+    - "{{ etcd_config_dir }}"
+
+- name: Install etcd binaries
   ansible.builtin.import_tasks: install.yml
-  tags:
-    - etcd
-    - install
 
-- name: Configure etcd service and system settings
-  ansible.builtin.import_tasks: config.yml
-  tags:
-    - etcd
-    - config
+- name: Generate and distribute certificates
+  ansible.builtin.import_tasks: certs.yml
 
-- name: Start and manage etcd service
+- name: Configure etcd
+  ansible.builtin.import_tasks: configure.yml
+
+- name: Start etcd service
   ansible.builtin.import_tasks: service.yml
-  tags:
-    - etcd
-    - service
-
-- name: Setup maintenance and monitoring scripts
-  ansible.builtin.import_tasks: maintenance.yml
-  tags:
-    - etcd
-    - maintenance
 
 - name: Verify etcd cluster health
   ansible.builtin.import_tasks: verify.yml
-  tags:
-    - etcd
-    - verify
-
-- name: Cleanup temporary files
-  ansible.builtin.import_tasks: cleanup.yml
-  tags:
-    - etcd
-    - cleanup
+  

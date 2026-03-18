@@ -14,16 +14,6 @@ defaults
     timeout check {{ loadbalancer_haproxy_timeouts.check }}
     retries 3
 
-{% if loadbalancer_stats.enabled %}
-listen stats
-    bind :{{ loadbalancer_stats.port }}
-    mode http
-    stats enable
-    stats uri /
-    stats auth {{ loadbalancer_stats.user }}:{{ loadbalancer_stats.password }}
-    stats refresh 5s
-{% endif %}
-
 frontend k8s-api
     mode tcp
     bind :{{ loadbalancer_haproxy_ports.api_port }}

@@ -1,37 +1,17 @@
 ---
-- name: Enable and start etcd service
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Enable and start etcd
   ansible.builtin.systemd:
     name: etcd
     enabled: true
     state: started
-    daemon_reload: true
-  tags:
-    - etcd
-    - service
 
-- name: Wait for etcd to be ready
-  ansible.builtin.command: >
-    /usr/local/bin/etcdctl
-    --endpoints=https://127.0.0.1:{{ etcd_client_port }}
-    --cacert={{ etcd_cert_dir }}/ca.crt
-    --cert={{ etcd_cert_dir }}/healthcheck-client.crt
-    --key={{ etcd_cert_dir }}/healthcheck-client.key
-    endpoint health
-  register: etcd_health
-  until: etcd_health.rc == 0
-  retries: 60
-  delay: 10
-  changed_when: false
-  when: not ansible_check_mode
-  tags:
-    - etcd
-    - health
-
-- name: Wait for etcd to be ready in check mode
-  ansible.builtin.debug:
-    msg: "Skipping etcd health check in check mode"
-  when: ansible_check_mode
-  tags:
-    - etcd
-    - health
-    - check_mode
+- name: Wait for etcd port to be open
+  ansible.builtin.wait_for:
+    host: "{{ ansible_host }}"
+    port: "{{ etcd_client_port }}"
+    delay: 3
+    timeout: 60

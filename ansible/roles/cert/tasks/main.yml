@@ -1,187 +1,62 @@
 ---
+- name: Check etcd CA already exists
+  ansible.builtin.stat:
+    path: "{{ kubeadm_cert_dir }}/etcd/ca.crt"
+  register: cert_ca_exists
+  when: inventory_hostname == groups['etcd'][0]
 
-
-- name: Create PKI directories
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: directory
-    mode: "0755"
-    owner: root
-    group: root
-  loop:
-    - "{{ cert_pki_dir }}"
-    - "{{ cert_etcd_pki_dir }}"
-  tags:
-    - certificates
-    - pki-setup
-
-- name: Create temporary certificate directories
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: directory
-    mode: "0700"
-  loop:
-    - "{{ cert_temp_dir }}"
-    - "{{ cert_temp_etcd_dir }}"
-    - "{{ cert_temp_master_dir }}"
-  delegate_to: localhost
-  run_once: true
-  become: false
-  tags:
-    - certificates
-    - temp-setup
-
-- name: Generate etcd CA certificate (first etcd node only)
-  when:
-    - inventory_hostname == groups['etcds'][0]
-    - inventory_hostname in groups['etcds']
-  tags:
-    - certificates
-    - etcd-ca
-  block:
-    - name: Create kubeadm etcd configuration
-      ansible.builtin.template:
-        src: kubeadm-etcd-config.yaml.j2
-        dest: /etc/kubernetes/kubeadm-etcd-config.yaml
-        mode: "0644"
-        owner: root
-        group: root
-
-    - name: Generate etcd CA certificate
-      ansible.builtin.command:
-        cmd: kubeadm init phase certs etcd-ca --config=/etc/kubernetes/kubeadm-etcd-config.yaml
-        creates: "{{ cert_files.etcd_ca.cert }}"
-
-    - name: Set proper permissions for etcd CA files
-      ansible.builtin.file:
-        path: "{{ item }}"
-        mode: "0600"
-        owner: root
-        group: root
-      loop:
-        - "{{ cert_files.etcd_ca.cert }}"
-        - "{{ cert_files.etcd_ca.key }}"
-
-    - name: Fetch etcd CA files to controller
-      ansible.builtin.fetch:
-        src: "{{ item }}"
-        dest: "{{ cert_temp_etcd_dir }}/{{ item | basename }}"
-        flat: true
-      loop:
-        - "{{ cert_files.etcd_ca.cert }}"
-        - "{{ cert_files.etcd_ca.key }}"
-
-- name: Distribute etcd CA certificate to all etcd and master nodes
-  ansible.builtin.copy:
-    src: "{{ cert_temp_etcd_dir }}/ca.crt"
-    dest: "{{ cert_files.etcd_ca.cert }}"
-    mode: "0644"
-    owner: root
-    group: root
-  when: inventory_hostname in groups['etcds'] or inventory_hostname in groups['masters']
-  tags:
-    - certificates
-    - ca-distribution
-
-- name: Distribute etcd CA key to etcd and master nodes
-  ansible.builtin.copy:
-    src: "{{ cert_temp_etcd_dir }}/ca.key"
-    dest: "{{ cert_files.etcd_ca.key }}"
+- name: Create per-node kubeadm config for cert generation
+  ansible.builtin.template:
+    src: cert-kubeadm-config.yaml.j2
+    dest: "/tmp/etcd-kubeadm-config-{{ item.name }}.yaml"
     mode: "0600"
-    owner: root
-    group: root
-  when: inventory_hostname in groups['etcds'] or inventory_hostname in groups['masters']
-  tags:
-    - certificates
-    - ca-distribution
+  loop: "{{ etcd_peers }}"
+  when:
+    - inventory_hostname == groups['etcd'][0]
+    - not cert_ca_exists.stat.exists
 
-- name: Generate etcd node certificates
-  when: inventory_hostname in groups['etcds']
-  tags:
-    - certificates
-    - etcd-certs
-  block:
-    - name: Create kubeadm etcd configuration for this node
-      ansible.builtin.template:
-        src: kubeadm-etcd-config.yaml.j2
-        dest: /etc/kubernetes/kubeadm-etcd-config.yaml
-        mode: "0644"
-        owner: root
-        group: root
+- name: Generate etcd CA
+  ansible.builtin.command: kubeadm init phase certs etcd-ca
+  args:
+    creates: "{{ kubeadm_cert_dir }}/etcd/ca.crt"
+  when: inventory_hostname == groups['etcd'][0]
 
-    - name: Generate etcd server certificate
-      ansible.builtin.command:
-        cmd: kubeadm init phase certs etcd-server --config=/etc/kubernetes/kubeadm-etcd-config.yaml
-        creates: "{{ cert_files.etcd_server.cert }}"
-
-    - name: Generate etcd peer certificate
-      ansible.builtin.command:
-        cmd: kubeadm init phase certs etcd-peer --config=/etc/kubernetes/kubeadm-etcd-config.yaml
-        creates: "{{ cert_files.etcd_peer.cert }}"
-
-    - name: Generate etcd healthcheck client certificate
-      ansible.builtin.command:
-        cmd: kubeadm init phase certs etcd-healthcheck-client --config=/etc/kubernetes/kubeadm-etcd-config.yaml
-        creates: "{{ cert_files.etcd_healthcheck.cert }}"
-
-- name: Generate apiserver etcd client certificates (master nodes)
-  when: inventory_hostname in groups['masters']
-  tags:
-    - certificates
-    - master-certs
-  block:
-    - name: Create kubeadm master configuration for etcd client cert
-      ansible.builtin.template:
-        src: kubeadm-master-config.yaml.j2
-        dest: /etc/kubernetes/kubeadm-master-config.yaml
-        mode: "0644"
-        owner: root
-        group: root
-
-    - name: Generate apiserver etcd client certificate
-      ansible.builtin.command:
-        cmd: kubeadm init phase certs apiserver-etcd-client
-        creates: "{{ cert_files.apiserver_etcd_client.cert }}"
-
-- name: Verify etcd certificates are present (etcd nodes)
-  ansible.builtin.stat:
-    path: "{{ item }}"
-  register: cert_etcd_cert_check
-  failed_when: not cert_etcd_cert_check.stat.exists
+- name: Fetch etcd CA về controller
+  ansible.builtin.fetch:
+    src: "{{ kubeadm_cert_dir }}/etcd/{{ item }}"
+    dest: "/tmp/etcd-ca/{{ item }}"
+    flat: true
   loop:
-    - "{{ cert_files.etcd_ca.cert }}"
-    - "{{ cert_files.etcd_server.cert }}"
-    - "{{ cert_files.etcd_server.key }}"
-    - "{{ cert_files.etcd_peer.cert }}"
-    - "{{ cert_files.etcd_peer.key }}"
-    - "{{ cert_files.etcd_healthcheck.cert }}"
-    - "{{ cert_files.etcd_healthcheck.key }}"
-  when: inventory_hostname in groups['etcds']
-  tags:
-    - certificates
-    - verify
+    - ca.crt
+    - ca.key
+  when: inventory_hostname == groups['etcd'][0]
 
-- name: Verify master certificates are present (master nodes)
-  ansible.builtin.stat:
-    path: "{{ item }}"
-  register: cert_master_cert_check
-  failed_when: not cert_master_cert_check.stat.exists
+- name: Copy etcd CA lên all etcd nodes
+  ansible.builtin.copy:
+    src: "/tmp/etcd-ca/{{ item }}"
+    dest: "{{ kubeadm_cert_dir }}/etcd/{{ item }}"
+    mode: "0600"
   loop:
-    - "{{ cert_files.etcd_ca.cert }}"
-    - "{{ cert_files.apiserver_etcd_client.cert }}"
-    - "{{ cert_files.apiserver_etcd_client.key }}"
-  when: inventory_hostname in groups['masters']
-  tags:
-    - certificates
-    - verify
+    - ca.crt
+    - ca.key
 
-- name: Cleanup temporary certificate files
-  ansible.builtin.file:
-    path: "{{ cert_temp_dir }}"
-    state: absent
-  delegate_to: localhost
-  run_once: true
-  become: false
-  tags:
-    - certificates
-    - cleanup
+- name: Gen etcd-server cert
+  ansible.builtin.command: >
+    kubeadm init phase certs etcd-server
+    --config=/tmp/etcd-kubeadm-config.yaml
+  args:
+    creates: "{{ kubeadm_cert_dir }}/etcd/server.crt"
+
+- name: Gen etcd-peer cert
+  ansible.builtin.command: >
+    kubeadm init phase certs etcd-peer
+    --config=/tmp/etcd-kubeadm-config.yaml
+  args:
+    creates: "{{ kubeadm_cert_dir }}/etcd/peer.crt"
+
+- name: Gen etcd-healthcheck-client cert
+  ansible.builtin.command: >
+    kubeadm init phase certs etcd-healthcheck-client
+    --config=/tmp/etcd-kubeadm-config.yaml
+  args:
+    creates: "{{ kubeadm_cert_dir }}/etcd/healthcheck-client.crt"

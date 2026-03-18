@@ -95,18 +95,6 @@
     - containerd
     - config
 
-- name: Configure pause image for containerd
-  ansible.builtin.lineinfile:
-    path: /etc/containerd/config.toml
-    regexp: '(\s+)sandbox_image = .*'
-    line: '\1sandbox_image = "registry.k8s.io/pause:3.10"'
-    backrefs: true
-    insertafter: '\[plugins\."io\.containerd\.grpc\.v1\.cri"\]'
-  notify: restart containerd
-  tags:
-    - containerd
-    - config
-
 - name: Enable and start containerd service
   ansible.builtin.systemd:
     name: containerd
