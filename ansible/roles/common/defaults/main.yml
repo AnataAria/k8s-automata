@@ -56,18 +56,6 @@ common_ntp_servers:
   - "2.debian.pool.ntp.org"
   - "3.debian.pool.ntp.org"
 
-common_logrotate_configs:
-  - name: "k8s-system"
-    path: "/var/log/kubernetes/*.log"
-    options:
-      - "daily"
-      - "rotate 30"
-      - "compress"
-      - "delaycompress"
-      - "missingok"
-      - "notifempty"
-      - "copytruncate"
-
 common_system_limits:
   - domain: "*"
     type: "soft"

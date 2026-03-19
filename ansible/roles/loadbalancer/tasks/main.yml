@@ -1,91 +1,44 @@
 ---
-- name: Create haproxy directories
+- name: Assert control plane backends exist for load balancer
+  ansible.builtin.assert:
+    that:
+      - groups['control_plane'] | length > 0
+    fail_msg: "The loadbalancer role requires at least one control_plane host."
+
+- name: Ensure HAProxy directories exist
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
     owner: root
     group: root
-    mode: "0755"
+    mode: '0755'
   loop:
     - "{{ loadbalancer_haproxy_config_dir }}"
     - "{{ loadbalancer_haproxy_log_dir }}"
-  tags:
-    - loadbalancer
 
-- name: Install HAProxy and required packages
+- name: Install HAProxy packages
   ansible.builtin.apt:
     name:
       - haproxy
       - socat
     state: present
     update_cache: true
-  tags:
-    - loadbalancer
 
-- name: Stop default HAProxy service
-  ansible.builtin.systemd:
-    name: haproxy
-    state: stopped
-    enabled: false
-  failed_when: false
-  tags:
-    - loadbalancer
-
-- name: Generate HAProxy configuration
+- name: Render HAProxy configuration
   ansible.builtin.template:
     src: haproxy.cfg.j2
     dest: "{{ loadbalancer_haproxy_config_dir }}/haproxy.cfg"
-    owner: root
-    group: root
-    mode: "0644"
+    mode: '0644'
     backup: true
-  notify: restart haproxy
-  tags:
-    - loadbalancer
+  notify: Restart haproxy
 
 - name: Validate HAProxy configuration
   ansible.builtin.command: haproxy -c -f "{{ loadbalancer_haproxy_config_dir }}/haproxy.cfg"
-  register: loadbalancer_haproxy_config_check
   changed_when: false
-  tags:
-    - loadbalancer
 
-- name: Configure firewall for HAProxy ports
-  community.general.ufw:
-    rule: allow
-    port: "{{ item.port }}"
-    proto: "{{ item.proto }}"
-    comment: "{{ item.comment }}"
-  loop:
-    - port: "{{ loadbalancer_haproxy_ports.api_port }}"
-      proto: "tcp"
-      comment: "Kubernetes API Server"
-    - port: "{{ loadbalancer_haproxy_ports.http_port }}"
-      proto: "tcp"
-      comment: "HTTP Ingress"
-    - port: "{{ loadbalancer_haproxy_ports.https_port }}"
-      proto: "tcp"
-      comment: "HTTPS Ingress"
-    - port: "{{ loadbalancer_haproxy_ports.stats_port }}"
-      proto: "tcp"
-      comment: "HAProxy Stats"
-  when: loadbalancer_configure_firewall | default(true) | bool
-  tags:
-    - loadbalancer
-
-- name: Enable and start HAProxy service
+- name: Ensure HAProxy service is enabled and running
   ansible.builtin.systemd:
     name: haproxy
     enabled: true
     state: started
     daemon_reload: true
-  tags:
-    - loadbalancer
-
-- name: Wait for HAProxy to be ready
-  ansible.builtin.wait_for:
-    port: "{{ loadbalancer_haproxy_ports.api_port }}"
-    delay: 5
-    timeout: 30
-  tags:
-    - loadbalancer

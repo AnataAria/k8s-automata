@@ -1,0 +1,48 @@
+---
+- name: Derive worker role state
+  ansible.builtin.set_fact:
+    worker_bootstrap_host: "{{ groups['control_plane'][0] }}"
+
+- name: Check whether worker has already joined
+  ansible.builtin.stat:
+    path: /etc/kubernetes/kubelet.conf
+  register: worker_kubelet_conf
+
+- name: Read durable worker join script from bootstrap node
+  ansible.builtin.slurp:
+    src: "{{ kubeadm_artifact_dir }}/worker-join.sh"
+  delegate_to: "{{ worker_bootstrap_host }}"
+  register: worker_join_script
+  when: not worker_kubelet_conf.stat.exists
+
+- name: Stage worker join script locally
+  ansible.builtin.copy:
+    dest: "{{ worker_join_tempfile }}"
+    mode: '0700'
+    content: "{{ worker_join_script.content | b64decode }}"
+  when: not worker_kubelet_conf.stat.exists
+
+- name: Join worker node to cluster
+  ansible.builtin.command: "{{ worker_join_tempfile }}"
+  when: not worker_kubelet_conf.stat.exists
+  register: worker_join_result
+  changed_when: true
+
+- name: Apply node labels from inventory
+  ansible.builtin.command: >-
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf label node {{ inventory_hostname }}
+    {% for key, value in node_labels.items() %}{{ key }}={{ value }} {% endfor %}
+    --overwrite
+  delegate_to: "{{ worker_bootstrap_host }}"
+  when:
+    - node_labels is defined
+    - node_labels | length > 0
+  changed_when: true
+
+- name: Apply node taints from inventory
+  ansible.builtin.command: >-
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf taint nodes {{ inventory_hostname }} {{ item }} --overwrite
+  delegate_to: "{{ worker_bootstrap_host }}"
+  loop: "{{ node_taints | default([]) }}"
+  when: node_taints | default([]) | length > 0
+  changed_when: true

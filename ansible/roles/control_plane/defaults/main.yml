@@ -1,1 +1,7 @@
 ---
+control_plane_kubeadm_config_path: /etc/kubernetes/kubeadm-init-config.yaml
+control_plane_admin_kubeconfig: /etc/kubernetes/admin.conf
+control_plane_artifact_dir: "{{ kubeadm_artifact_dir }}"
+control_plane_init_flags: ""
+control_plane_join_tempfile: /tmp/kubeadm-control-plane-join.sh
+control_plane_api_advertise_address: "{{ ip | default(access_ip | default(ansible_host)) }}"

@@ -1,22 +1,37 @@
 apiVersion: kubeadm.k8s.io/v1beta3
 kind: ClusterConfiguration
+clusterName: kubernetes
 kubernetesVersion: "{{ k8s_version }}"
 controlPlaneEndpoint: "{{ control_plane_endpoint }}"
 networking:
   podSubnet: "{{ pod_network_cidr }}"
   serviceSubnet: "{{ service_cidr }}"
+  dnsDomain: "{{ cluster_dns_domain }}"
+apiServer:
+  certSANs:
+{% set endpoint_host = control_plane_endpoint | regex_replace(':.*$', '') %}
+{% set sans = (api_server_cert_sans + [endpoint_host, inventory_hostname, ansible_host, control_plane_api_advertise_address, '127.0.0.1', 'localhost']) | unique %}
+{% for san in sans %}
+    - "{{ san }}"
+{% endfor %}
+controllerManager: {}
+scheduler: {}
 etcd:
   external:
     endpoints:
-      - "https://192.168.1.11:2379"
-      - "https://192.168.1.12:2379"
-      - "https://192.168.1.13:2379"
+{% for host in groups['etcd'] %}
+      - "https://{{ hostvars[host].ip | default(hostvars[host].access_ip | default(hostvars[host].ansible_host)) }}:{{ etcd_client_port }}"
+{% endfor %}
     caFile: "/etc/kubernetes/pki/etcd/ca.crt"
     certFile: "/etc/kubernetes/pki/apiserver-etcd-client.crt"
-    keyFile:  "/etc/kubernetes/pki/apiserver-etcd-client.key"
+    keyFile: "/etc/kubernetes/pki/apiserver-etcd-client.key"
 ---
 apiVersion: kubeadm.k8s.io/v1beta3
 kind: InitConfiguration
 localAPIEndpoint:
-  advertiseAddress: "{{ ansible_host }}"
+  advertiseAddress: "{{ control_plane_api_advertise_address }}"
   bindPort: 6443
+nodeRegistration:
+  criSocket: "{{ containerd_socket }}"
+  kubeletExtraArgs:
+    node-ip: "{{ control_plane_api_advertise_address }}"

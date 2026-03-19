@@ -1,0 +1,18 @@
+---
+- name: Configure log rotation for Kubernetes
+  ansible.builtin.template:
+    src: logrotate-k8s.j2
+    dest: "/etc/logrotate.d/{{ item.name }}"
+    mode: '0644'
+  loop: "{{ log_logrotate_configs }}"
+  tags:
+    - logging
+    - logrotate
+
+- name: Create kubernetes log directory
+  ansible.builtin.file:
+    path: /var/log/kubernetes
+    state: directory
+    mode: '0755'
+  tags:
+    - logging

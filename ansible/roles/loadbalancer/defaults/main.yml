@@ -1,39 +1,24 @@
 ---
 loadbalancer_haproxy_config_dir: "/etc/haproxy"
 loadbalancer_haproxy_log_dir: "/var/log/haproxy"
-
 loadbalancer_haproxy_ports:
   api_port: 6443
-  http_port: 80
-  https_port: 443
   stats_port: 8404
-
-loadbalancer_k8s_nodeports:
-  http: 30080
-  https: 30443
-
 loadbalancer_haproxy_global:
   maxconn: 4096
-  log_level: "info"
-
+  log_level: info
 loadbalancer_haproxy_timeouts:
-  connect: "5s"
-  client: "1h"
-  server: "1h"
-  check: "5s"
-
+  connect: 5s
+  client: 1m
+  server: 1m
+  check: 5s
 loadbalancer_health_checks:
-  interval: "10s"
-  timeout: "5s"
+  interval: 10s
   fall: 3
   rise: 2
-
-loadbalancer_balance_algorithm: "roundrobin"
-
+loadbalancer_balance_algorithm: roundrobin
 loadbalancer_stats:
   enabled: true
-  port: 8404
-  user: "admin"
-  password: "admin123"
-
-loadbalancer_configure_firewall: true
+  user: admin
+  password: admin123
+loadbalancer_configure_firewall: false

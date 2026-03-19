@@ -8,8 +8,5 @@ etcd_download_dir: "/tmp"
 
 etcd_client_port: 2379
 etcd_peer_port: 2380
-
 etcd_cluster_token: "etcd-cluster-k8s"
 etcd_initial_cluster_state: "new"
-
-kubeadm_cert_dir: "/etc/kubernetes/pki"

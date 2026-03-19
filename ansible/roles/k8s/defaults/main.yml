@@ -1,1 +1,14 @@
 ---
+k8s_apt_keyring_path: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+k8s_apt_repo: "deb [signed-by={{ k8s_apt_keyring_path }}] https://pkgs.k8s.io/core:/stable:/v{{ k8s_minor }}/deb/ /"
+k8s_packages:
+  - kubeadm
+  - kubelet
+  - kubectl
+k8s_prerequisite_packages:
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - gpg
+  - jq
+k8s_node_ip: "{{ ip | default(access_ip | default(ansible_host)) }}"

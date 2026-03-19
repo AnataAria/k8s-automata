@@ -14,44 +14,23 @@ defaults
     timeout check {{ loadbalancer_haproxy_timeouts.check }}
     retries 3
 
-frontend k8s-api
-    mode tcp
-    bind :{{ loadbalancer_haproxy_ports.api_port }}
+frontend kubernetes_api
+    bind *:{{ loadbalancer_haproxy_ports.api_port }}
     option tcplog
-    default_backend k8s-api-servers
+    default_backend kubernetes_control_planes
 
-backend k8s-api-servers
-    mode tcp
+backend kubernetes_control_planes
     balance {{ loadbalancer_balance_algorithm }}
     option tcp-check
-{% for host in groups['masters'] %}
-    server {{ host }} {{ hostvars[host]['ansible_host'] }}:6443 check inter {{ loadbalancer_health_checks.interval }} fall {{ loadbalancer_health_checks.fall }} rise {{ loadbalancer_health_checks.rise }}
+{% for host in groups['control_plane'] %}
+    server {{ host }} {{ hostvars[host].ip | default(hostvars[host].access_ip | default(hostvars[host].ansible_host)) }}:{{ loadbalancer_backend_port }} check inter {{ loadbalancer_health_checks.interval }} fall {{ loadbalancer_health_checks.fall }} rise {{ loadbalancer_health_checks.rise }}
 {% endfor %}
-
-frontend k8s-http
-    mode tcp
-    option tcplog
-    bind :{{ loadbalancer_haproxy_ports.http_port }}
-    default_backend k8s-http-servers
-
-backend k8s-http-servers
-    mode tcp
-    balance {{ loadbalancer_balance_algorithm }}
-    option tcp-check
-{% for host in groups['workers'] %}
-    server {{ host }} {{ hostvars[host]['ansible_host'] }}:{{ loadbalancer_k8s_nodeports.http }} check inter {{ loadbalancer_health_checks.interval }} fall {{ loadbalancer_health_checks.fall }} rise {{ loadbalancer_health_checks.rise }}
-{% endfor %}
-
-frontend k8s-https
-    mode tcp
-    bind 0.0.0.0:{{ loadbalancer_haproxy_ports.https_port }}
-    option tcplog
-    default_backend k8s-https-servers
-
-backend k8s-https-servers
-    mode tcp
-    balance {{ loadbalancer_balance_algorithm }}
-    option tcp-check
-{% for host in groups['workers'] %}
-    server {{ host }} {{ hostvars[host]['ansible_host'] }}:{{ loadbalancer_k8s_nodeports.https }} check inter {{ loadbalancer_health_checks.interval }} fall {{ loadbalancer_health_checks.fall }} rise {{ loadbalancer_health_checks.rise }}
-{% endfor %}
+{% if loadbalancer_stats.enabled | bool %}
+listen stats
+    bind *:{{ loadbalancer_haproxy_ports.stats_port }}
+    mode http
+    stats enable
+    stats uri /stats
+    stats refresh 10s
+    stats auth {{ loadbalancer_stats.user }}:{{ loadbalancer_stats.password }}
+{% endif %}

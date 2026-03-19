@@ -1,4 +1,10 @@
-.PHONY: help aws-plan aws-apply aws-destroy aws-status aws-health aws-backup proxmox-plan proxmox-apply proxmox-destroy proxmox-status proxmox-health proxmox-backup both-plan both-apply both-destroy clean setup-aws setup-proxmox check-deps ping troubleshoot logs
+.PHONY: help aws-plan aws-apply aws-destroy aws-status aws-health aws-backup aws-ansible aws-ping proxmox-plan proxmox-apply proxmox-destroy proxmox-status proxmox-health proxmox-backup proxmox-ansible proxmox-ping both-plan both-apply both-destroy both-ansible both-health ping troubleshoot logs clean setup-aws setup-proxmox check-deps init dev-proxmox dev-aws update-system update-k8s backup-all monitor quick-proxmox quick-aws full-deploy-proxmox full-deploy-aws lb-deploy lb-deploy-aws lb-deploy-proxmox lb-health lb-health-aws lb-health-proxmox lb-restart lb-restart-aws lb-restart-proxmox lb-status lb-status-aws lb-status-proxmox lb-logs lb-logs-aws lb-logs-proxmox lb-config lb-config-aws lb-config-proxmox lb-ping lb-ping-aws lb-ping-proxmox
+
+ANSIBLE_PLAYBOOK ?= site.yml
+PLATFORM ?= proxmox
+LB_GROUP := load_balancers
+LB_SERVICE := haproxy
+LB_CONFIG := /etc/haproxy/haproxy.cfg
 
 help:
 	@echo 'K8s Automata - Kubernetes Cluster Automation'
@@ -36,7 +42,7 @@ aws-backup: ## Create AWS cluster backup
 	./script/main.sh aws backup --auto-approve
 
 aws-ansible: ## Run Ansible on existing AWS infrastructure
-	./script/main.sh aws ansible
+	./script/main.sh aws ansible --playbook $(ANSIBLE_PLAYBOOK)
 
 aws-ping: ## Test connectivity to AWS hosts
 	./script/main.sh aws ping
@@ -60,79 +66,73 @@ proxmox-backup: ## Create Proxmox cluster backup
 	./script/main.sh proxmox backup --auto-approve
 
 proxmox-ansible: ## Run Ansible on existing Proxmox infrastructure
-	./script/main.sh proxmox ansible
+	./script/main.sh proxmox ansible --playbook $(ANSIBLE_PLAYBOOK)
 
 proxmox-ping: ## Test connectivity to Proxmox hosts
 	./script/main.sh proxmox ping
 
-lb-deploy: ## Deploy load balancers only
-	cd ansible && ansible-playbook -i inventories/$(PLATFORM)/hosts.ini playbooks/setup-loadbalancer.yaml
+lb-deploy: ## Configure load balancers only for the selected platform
+	cd ansible && ansible-playbook -i inventories/$(PLATFORM)/hosts.ini $(ANSIBLE_PLAYBOOK) --limit $(LB_GROUP)
 
-lb-deploy-aws: ## Deploy AWS load balancers
-	cd ansible && ansible-playbook -i inventories/aws/hosts.ini playbooks/setup-loadbalancer.yaml
+lb-deploy-aws: ## Configure AWS load balancers
+	$(MAKE) lb-deploy PLATFORM=aws
 
-lb-deploy-proxmox: ## Deploy Proxmox load balancers
-	cd ansible && ansible-playbook -i inventories/proxmox/hosts.ini playbooks/setup-loadbalancer.yaml
+lb-deploy-proxmox: ## Configure Proxmox load balancers
+	$(MAKE) lb-deploy PLATFORM=proxmox
 
-lb-health: ## Check load balancer health
-	cd ansible && ansible loadbalancers -i inventories/$(PLATFORM)/hosts.ini -m shell -a "/usr/local/bin/lb-health-check.sh --verbose" -b
+lb-health: ## Check HAProxy health on load balancers for the selected platform
+	cd ansible && ansible $(LB_GROUP) -i inventories/$(PLATFORM)/hosts.ini -m shell -a "systemctl is-active $(LB_SERVICE) && ss -lntp | grep -E ':6443\\b'" -b
 
 lb-health-aws: ## Check AWS load balancer health
-	cd ansible && ansible loadbalancers -i inventories/aws/hosts.ini -m shell -a "/usr/local/bin/lb-health-check.sh --verbose" -b
+	$(MAKE) lb-health PLATFORM=aws
 
 lb-health-proxmox: ## Check Proxmox load balancer health
-	cd ansible && ansible loadbalancers -i inventories/proxmox/hosts.ini -m shell -a "/usr/local/bin/lb-health-check.sh --verbose" -b
+	$(MAKE) lb-health PLATFORM=proxmox
 
-lb-restart: ## Restart Envoy service on load balancers
-	cd ansible && ansible loadbalancers -i inventories/$(PLATFORM)/hosts.ini -m systemd -a "name=envoy state=restarted" -b
+lb-restart: ## Restart HAProxy service on load balancers for the selected platform
+	cd ansible && ansible $(LB_GROUP) -i inventories/$(PLATFORM)/hosts.ini -m systemd -a "name=$(LB_SERVICE) state=restarted" -b
 
 lb-restart-aws: ## Restart AWS load balancers
-	cd ansible && ansible loadbalancers -i inventories/aws/hosts.ini -m systemd -a "name=envoy state=restarted" -b
+	$(MAKE) lb-restart PLATFORM=aws
 
 lb-restart-proxmox: ## Restart Proxmox load balancers
-	cd ansible && ansible loadbalancers -i inventories/proxmox/hosts.ini -m systemd -a "name=envoy state=restarted" -b
+	$(MAKE) lb-restart PLATFORM=proxmox
 
-lb-status: ## Show load balancer status
-	cd ansible && ansible loadbalancers -i inventories/$(PLATFORM)/hosts.ini -m systemd -a "name=envoy" -b
+lb-status: ## Show HAProxy service status on load balancers for the selected platform
+	cd ansible && ansible $(LB_GROUP) -i inventories/$(PLATFORM)/hosts.ini -m systemd -a "name=$(LB_SERVICE)" -b
 
 lb-status-aws: ## Show AWS load balancer status
-	cd ansible && ansible loadbalancers -i inventories/aws/hosts.ini -m systemd -a "name=envoy" -b
+	$(MAKE) lb-status PLATFORM=aws
 
 lb-status-proxmox: ## Show Proxmox load balancer status
-	cd ansible && ansible loadbalancers -i inventories/proxmox/hosts.ini -m systemd -a "name=envoy" -b
+	$(MAKE) lb-status PLATFORM=proxmox
 
-lb-logs: ## View load balancer logs
-	cd ansible && ansible loadbalancers -i inventories/$(PLATFORM)/hosts.ini -m shell -a "journalctl -u envoy --no-pager -n 50" -b
+lb-logs: ## View HAProxy logs on load balancers for the selected platform
+	cd ansible && ansible $(LB_GROUP) -i inventories/$(PLATFORM)/hosts.ini -m shell -a "journalctl -u $(LB_SERVICE) --no-pager -n 50" -b
 
 lb-logs-aws: ## View AWS load balancer logs
-	cd ansible && ansible loadbalancers -i inventories/aws/hosts.ini -m shell -a "journalctl -u envoy --no-pager -n 50" -b
+	$(MAKE) lb-logs PLATFORM=aws
 
 lb-logs-proxmox: ## View Proxmox load balancer logs
-	cd ansible && ansible loadbalancers -i inventories/proxmox/hosts.ini -m shell -a "journalctl -u envoy --no-pager -n 50" -b
+	$(MAKE) lb-logs PLATFORM=proxmox
 
-lb-config: ## View current Envoy configuration
-	cd ansible && ansible loadbalancers -i inventories/$(PLATFORM)/hosts.ini -m shell -a "cat /etc/envoy/envoy.yaml" -b
+lb-config: ## View current HAProxy configuration on load balancers for the selected platform
+	cd ansible && ansible $(LB_GROUP) -i inventories/$(PLATFORM)/hosts.ini -m shell -a "cat $(LB_CONFIG)" -b
 
-lb-config-aws: ## View AWS Envoy configuration
-	cd ansible && ansible loadbalancers -i inventories/aws/hosts.ini -m shell -a "cat /etc/envoy/envoy.yaml" -b
+lb-config-aws: ## View AWS HAProxy configuration
+	$(MAKE) lb-config PLATFORM=aws
 
-lb-config-proxmox: ## View Proxmox Envoy configuration
-	cd ansible && ansible loadbalancers -i inventories/proxmox/hosts.ini -m shell -a "cat /etc/envoy/envoy.yaml" -b
+lb-config-proxmox: ## View Proxmox HAProxy configuration
+	$(MAKE) lb-config PLATFORM=proxmox
 
-lb-admin: ## Access Envoy admin interface info
-	cd ansible && ansible loadbalancers -i inventories/$(PLATFORM)/hosts.ini -m uri -a "url=http://127.0.0.1:9901/stats method=GET return_content=yes"
-
-lb-clusters: ## Show Envoy cluster status
-	cd ansible && ansible loadbalancers -i inventories/$(PLATFORM)/hosts.ini -m uri -a "url=http://127.0.0.1:9901/clusters method=GET return_content=yes"
-
-lb-ping: ## Test connectivity to load balancers
-	cd ansible && ansible loadbalancers -i inventories/$(PLATFORM)/hosts.ini -m ping
+lb-ping: ## Test connectivity to load balancers for the selected platform
+	cd ansible && ansible $(LB_GROUP) -i inventories/$(PLATFORM)/hosts.ini -m ping
 
 lb-ping-aws: ## Test connectivity to AWS load balancers
-	cd ansible && ansible loadbalancers -i inventories/aws/hosts.ini -m ping
+	$(MAKE) lb-ping PLATFORM=aws
 
 lb-ping-proxmox: ## Test connectivity to Proxmox load balancers
-	cd ansible && ansible loadbalancers -i inventories/proxmox/hosts.ini -m ping
+	$(MAKE) lb-ping PLATFORM=proxmox
 
 both-plan: ## Plan infrastructure on both platforms
 	./script/main.sh both plan
@@ -144,7 +144,7 @@ both-destroy: ## Destroy both AWS and Proxmox infrastructure
 	./script/main.sh both destroy --auto-approve
 
 both-ansible: ## Run Ansible on both platforms
-	./script/main.sh both ansible
+	./script/main.sh both ansible --playbook $(ANSIBLE_PLAYBOOK)
 
 both-health: ## Run health checks on both platforms
 	./script/main.sh both health
@@ -171,12 +171,8 @@ check-deps: ## Check if required dependencies are installed
 
 setup-aws: ## Setup AWS configuration files
 	@if [ ! -f terraform/aws/configs.auto.tfvars ]; then \
-		cp terraform/aws/configs.auto.tfvars.example terraform/aws/configs.auto.tfvars; \
+		cp terraform/aws/terraform.tfvars.example terraform/aws/configs.auto.tfvars; \
 		echo "Created terraform/aws/configs.auto.tfvars - please edit with your configuration"; \
-	fi
-	@if [ ! -f terraform/aws/secrets.auto.tfvars ]; then \
-		cp terraform/aws/secrets.auto.tfvars.example terraform/aws/secrets.auto.tfvars; \
-		echo "Created terraform/aws/secrets.auto.tfvars - please edit with your credentials"; \
 	fi
 
 setup-proxmox: ## Setup Proxmox configuration files
@@ -191,9 +187,9 @@ setup-proxmox: ## Setup Proxmox configuration files
 
 init: ## Initialize project (setup configs and check dependencies)
 	@echo "Initializing K8s Automata..."
-	make setup-aws
-	make setup-proxmox
-	make check-deps
+	$(MAKE) setup-aws
+	$(MAKE) setup-proxmox
+	$(MAKE) check-deps
 	@echo "Initialization complete!"
 
 dev-proxmox: ## Quick development cycle for Proxmox
@@ -209,7 +205,7 @@ dev-aws: ## Quick development cycle for AWS
 update-system: ## Update system packages on all nodes
 	./script/main.sh both update --update-type system --auto-approve
 
-update-k8s: ## Update Kubernetes components
+update-k8s: ## Review Kubernetes component versions on all platforms
 	./script/main.sh both update --update-type kubernetes
 
 backup-all: ## Create backups for all platforms
@@ -217,17 +213,15 @@ backup-all: ## Create backups for all platforms
 
 monitor: ## Show monitoring information
 	@echo "Cluster Status:"
-	@make both-health 2>/dev/null || echo "Health check failed"
+	@$(MAKE) both-health 2>/dev/null || echo "Health check failed"
 	@echo "\nNode Information:"
-	@make ping 2>/dev/null || echo "Connectivity check failed"
+	@$(MAKE) ping 2>/dev/null || echo "Connectivity check failed"
 
 quick-proxmox: setup-proxmox proxmox-apply ## Quick setup and deploy Proxmox
 quick-aws: setup-aws aws-apply ## Quick setup and deploy AWS
 
 full-deploy-proxmox: ## Full Proxmox deployment including load balancers
-	make proxmox-apply && make lb-deploy-proxmox && make lb-health-proxmox
+	$(MAKE) proxmox-apply && $(MAKE) lb-deploy-proxmox && $(MAKE) lb-health-proxmox
 
 full-deploy-aws: ## Full AWS deployment including load balancers
-	make aws-apply && make lb-deploy-aws && make lb-health-aws
-
-PLATFORM ?= proxmox
+	$(MAKE) aws-apply && $(MAKE) lb-deploy-aws && $(MAKE) lb-health-aws

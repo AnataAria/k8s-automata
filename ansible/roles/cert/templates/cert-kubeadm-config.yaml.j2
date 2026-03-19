@@ -4,10 +4,10 @@ kind: ClusterConfiguration
 etcd:
   local:
     serverCertSANs:
-      - "{{ ansible_host }}"
-      - "{{ inventory_hostname }}"
-      - "localhost"
-      - "127.0.0.1"
+{% for san in cert_target_addresses %}
+      - "{{ san }}"
+{% endfor %}
     peerCertSANs:
-      - "{{ ansible_host }}"
-      - "{{ inventory_hostname }}"
+{% for san in cert_target_addresses %}
+      - "{{ san }}"
+{% endfor %}

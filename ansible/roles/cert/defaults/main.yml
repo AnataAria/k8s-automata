@@ -1,2 +1,5 @@
 ---
-kubeadm_cert_dir: "/etc/kubernetes/pki"
+cert_kubeadm_cert_dir: "/etc/kubernetes/pki"
+cert_local_artifact_dir: "{{ local_artifact_dir }}/pki"
+cert_control_plane_artifact_dir: "{{ cert_local_artifact_dir }}/control-plane"
+cert_generation_delegate: "{{ groups['etcd'][0] }}"

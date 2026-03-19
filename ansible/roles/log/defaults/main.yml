@@ -1,0 +1,12 @@
+---
+log_logrotate_configs:
+  - name: "k8s-system"
+    path: "/var/log/kubernetes/*.log"
+    options:
+      - "daily"
+      - "rotate 30"
+      - "compress"
+      - "delaycompress"
+      - "missingok"
+      - "notifempty"
+      - "copytruncate"

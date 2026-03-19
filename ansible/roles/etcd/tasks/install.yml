@@ -5,24 +5,19 @@
   changed_when: false
   failed_when: false
 
-- name: Parse installed version
+- name: Parse installed etcd version
   ansible.builtin.set_fact:
     etcd_current_version: >-
-      {{ etcd_installed_version.stdout
-         | regex_search('etcd Version:\s+([\d.]+)', '\1')
-         | first | default('none') }}
-  when: etcd_installed_version.rc == 0
-
-- name: Set version to none if not installed
-  ansible.builtin.set_fact:
-    etcd_current_version: "none"
-  when: etcd_installed_version.rc != 0
+      {{
+        (etcd_installed_version.stdout | regex_search('etcd Version: ([0-9.]+)', '\\1'))
+        if etcd_installed_version.rc == 0 else 'none'
+      }}
 
 - name: Download etcd archive
   ansible.builtin.get_url:
     url: "https://github.com/etcd-io/etcd/releases/download/v{{ etcd_version }}/etcd-v{{ etcd_version }}-linux-amd64.tar.gz"
     dest: "{{ etcd_download_dir }}/etcd-v{{ etcd_version }}-linux-amd64.tar.gz"
-    mode: "0644"
+    mode: '0644'
   when: etcd_current_version != etcd_version
 
 - name: Extract etcd archive
@@ -33,26 +28,15 @@
     creates: "{{ etcd_download_dir }}/etcd-v{{ etcd_version }}-linux-amd64/etcd"
   when: etcd_current_version != etcd_version
 
-- name: Copy etcd binaries
+- name: Install etcd binaries
   ansible.builtin.copy:
     src: "{{ etcd_download_dir }}/etcd-v{{ etcd_version }}-linux-amd64/{{ item }}"
     dest: "{{ etcd_bin_dir }}/{{ item }}"
-    mode: "0755"
+    mode: '0755'
     remote_src: true
   loop:
     - etcd
     - etcdctl
     - etcdutl
-  notify: restart etcd
   when: etcd_current_version != etcd_version
-
-- name: Verify etcd binary
-  ansible.builtin.command: "{{ etcd_bin_dir }}/etcd --version"
-  register: etcd_version_check
-  changed_when: false
-  failed_when: etcd_version not in etcd_version_check.stdout
-
-- name: Clean up download archive
-  ansible.builtin.file:
-    path: "{{ etcd_download_dir }}/etcd-v{{ etcd_version }}-linux-amd64.tar.gz"
-    state: absent
+  notify: Restart etcd

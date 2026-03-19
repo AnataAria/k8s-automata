@@ -8,6 +8,16 @@ ANSIBLE_PLAYBOOK_DIR="${ANSIBLE_BASE_DIR}"
 ANSIBLE_INVENTORY_DIR="${ANSIBLE_BASE_DIR}/inventories"
 ANSIBLE_ROLES_DIR="${ANSIBLE_BASE_DIR}/roles"
 SUPPORTED_PLATFORMS=("aws" "proxmox")
+CANONICAL_INVENTORY_GROUPS=(
+    "bastion"
+    "load_balancers"
+    "etcd"
+    "control_plane"
+    "workers"
+    "k8s_cluster"
+    "cluster_nodes"
+    "services"
+)
 
 ANSIBLE_HOST_KEY_CHECKING="False"
 ANSIBLE_STDOUT_CALLBACK="default"
@@ -32,9 +42,9 @@ validate_ansible_directory() {
         return 1
     fi
 
-    if [ ! -f "${ANSIBLE_PLAYBOOK_DIR}/site.yaml" ]; then
-        error "Main Ansible playbook not found: ${ANSIBLE_PLAYBOOK_DIR}/site.yaml"
-        info "Ensure site.yaml exists in: $ANSIBLE_PLAYBOOK_DIR"
+    if [ ! -f "${ANSIBLE_PLAYBOOK_DIR}/site.yml" ]; then
+        error "Main Ansible playbook not found: ${ANSIBLE_PLAYBOOK_DIR}/site.yml"
+        info "Ensure site.yml exists in: $ANSIBLE_PLAYBOOK_DIR"
         return 1
     fi
 
@@ -66,12 +76,26 @@ validate_inventory() {
         return 1
     fi
 
-    # Basic validation of inventory format
     if ! grep -q "\[.*\]" "$inventory_file"; then
-        warn "Inventory file may not be in proper INI format"
+        error "Inventory file is not in the expected INI group format: $inventory_file"
+        return 1
     fi
 
-    success "Inventory file is valid"
+    local missing_groups=()
+    local group
+    for group in "${CANONICAL_INVENTORY_GROUPS[@]}"; do
+        if ! grep -Eq "^\[${group}(]|:)" "$inventory_file"; then
+            missing_groups+=("$group")
+        fi
+    done
+
+    if [ ${#missing_groups[@]} -gt 0 ]; then
+        error "Inventory validation failed. Missing canonical groups: ${missing_groups[*]}"
+        info "Expected groups: ${CANONICAL_INVENTORY_GROUPS[*]}"
+        return 1
+    fi
+
+    success "Inventory file includes the canonical group topology"
     return 0
 }
 
@@ -104,70 +128,67 @@ set_ansible_env() {
 }
 
 run_ansible_playbook() {
-  local platform="$1"
-  local playbook="$2"
-  local extra_vars="${3:-}"
-  local tags="${4:-}"
-  local limit="${5:-}"
-  local check_mode="${6:-false}"
+    local platform="$1"
+    local playbook="$2"
+    local extra_vars="${3:-}"
+    local tags="${4:-}"
+    local limit="${5:-}"
+    local check_mode="${6:-false}"
 
-  local inventory_file="${ANSIBLE_INVENTORY_DIR}/${platform}/hosts.ini"
-  local playbook_path="${ANSIBLE_PLAYBOOK_DIR}/${playbook}"
+    local inventory_file="${ANSIBLE_INVENTORY_DIR}/${platform}/hosts.ini"
+    local playbook_path="${ANSIBLE_PLAYBOOK_DIR}/${playbook}"
 
-  step "Running Ansible playbook: $playbook for $platform"
+    step "Running Ansible playbook: $playbook for $platform"
 
-  local cmd="ansible-playbook -i $inventory_file $playbook_path"
+    local cmd="ansible-playbook -i $inventory_file $playbook_path"
+    cmd="$cmd --timeout=60 --forks=5 --ssh-extra-args='-o ConnectTimeout=30 -o ConnectionAttempts=5'"
 
-  # Add more robust options for first-time success
-  cmd="$cmd --timeout=60 --forks=5 --ssh-extra-args='-o ConnectTimeout=30 -o ConnectionAttempts=5'"
+    if [ -n "$extra_vars" ]; then
+        cmd="$cmd --extra-vars '$extra_vars'"
+    fi
 
-  if [ -n "$extra_vars" ]; then
-      cmd="$cmd --extra-vars '$extra_vars'"
-  fi
+    if [ -n "$tags" ]; then
+        cmd="$cmd --tags '$tags'"
+    fi
 
-  if [ -n "$tags" ]; then
-      cmd="$cmd --tags '$tags'"
-  fi
+    if [ -n "$limit" ]; then
+        cmd="$cmd --limit '$limit'"
+    fi
 
-  if [ -n "$limit" ]; then
-      cmd="$cmd --limit '$limit'"
-  fi
+    if [ "$check_mode" = "true" ]; then
+        cmd="$cmd --check"
+        info "Running in check mode (dry run)"
+    fi
 
-  if [ "$check_mode" = "true" ]; then
-      cmd="$cmd --check"
-      info "Running in check mode (dry run)"
-  fi
+    debug "Executing: $cmd"
 
-  debug "Executing: $cmd"
+    local max_retries=2
+    local retry_count=0
+    local exit_code=0
 
-  # Retry mechanism for the Ansible playbook
-  local max_retries=2
-  local retry_count=0
-  local exit_code=0
+    while [ $retry_count -le $max_retries ]; do
+        if [ $retry_count -gt 0 ]; then
+            info "Retrying Ansible playbook (attempt $((retry_count + 1))/$((max_retries + 1)))"
+            sleep 10
+        fi
 
-  while [ $retry_count -le $max_retries ]; do
-      if [ $retry_count -gt 0 ]; then
-          info "Retrying Ansible playbook (attempt $((retry_count + 1))/$((max_retries + 1)))"
-          sleep 10
-      fi
+        eval "$cmd"
+        exit_code=$?
 
-      eval $cmd
-      exit_code=$?
+        if [ $exit_code -eq 0 ]; then
+            break
+        fi
 
-      if [ $exit_code -eq 0 ]; then
-          break
-      fi
+        retry_count=$((retry_count + 1))
+    done
 
-      retry_count=$((retry_count + 1))
-  done
-
-  if [ $exit_code -eq 0 ]; then
-      success "Ansible playbook completed successfully"
-      return 0
-  else
-      error "Ansible playbook failed with exit code: $exit_code after $((max_retries + 1)) attempts"
-      return $exit_code
-  fi
+    if [ $exit_code -eq 0 ]; then
+        success "Ansible playbook completed successfully"
+        return 0
+    else
+        error "Ansible playbook failed with exit code: $exit_code after $((max_retries + 1)) attempts"
+        return $exit_code
+    fi
 }
 
 ansible_ping() {
@@ -211,7 +232,7 @@ ansible_adhoc() {
     fi
 
     debug "Executing: $cmd"
-    eval $cmd
+    eval "$cmd"
 }
 
 install_ansible_requirements() {
@@ -254,8 +275,11 @@ check_ansible_syntax() {
 ansible_operation() {
     local platform="$1"
     local action="$2"
-    local playbook="${3:-site.yaml}"
+    local playbook="${3:-site.yml}"
     local extra_options="$4"
+    local tags="${5:-}"
+    local limit="${6:-}"
+    local check_mode="${7:-false}"
 
     if ! is_ansible_platform_supported "$platform"; then
         error "Unsupported platform: $platform"
@@ -284,10 +308,10 @@ ansible_operation() {
             validate_playbook "$playbook" && check_ansible_syntax "$platform" "$playbook"
             ;;
         "check")
-            validate_playbook "$playbook" && run_ansible_playbook "$platform" "$playbook" "$extra_options" "" "" "true"
+            validate_playbook "$playbook" && run_ansible_playbook "$platform" "$playbook" "$extra_options" "$tags" "$limit" "$check_mode"
             ;;
         "run"|"playbook")
-            validate_playbook "$playbook" && run_ansible_playbook "$platform" "$playbook" "$extra_options"
+            validate_playbook "$playbook" && run_ansible_playbook "$platform" "$playbook" "$extra_options" "$tags" "$limit" "$check_mode"
             ;;
         "install-requirements")
             install_ansible_requirements
@@ -307,7 +331,7 @@ ansible_operation() {
 
 ansible_multi_platform() {
     local action="$1"
-    local playbook="${2:-site.yaml}"
+    local playbook="${2:-site.yml}"
     shift 2
     local platforms=("$@")
 
@@ -331,36 +355,36 @@ ansible_multi_platform() {
 }
 
 wait_for_hosts() {
-  local platform="$1"
-  local timeout="${2:-600}"  # Increased timeout
-  local interval="${3:-30}"
+    local platform="$1"
+    local timeout="${2:-600}"
+    local interval="${3:-30}"
 
-  step "Waiting for hosts to be ready (timeout: ${timeout}s)..."
+    step "Waiting for hosts to be ready (timeout: ${timeout}s)..."
 
-  local elapsed=0
-  local success_count=0
-  local required_success=3  # Require 3 consecutive successful pings
+    local elapsed=0
+    local success_count=0
+    local required_success=3
 
-  while [ $elapsed -lt $timeout ]; do
-      if ansible_ping "$platform" >/dev/null 2>&1; then
-          success_count=$((success_count + 1))
-          if [ $success_count -ge $required_success ]; then
-              success "All hosts are ready and stable"
-              return 0
-          else
-              info "Hosts responding, waiting for stability... ($success_count/$required_success)"
-          fi
-      else
-          success_count=0  # Reset counter on failure
-          info "Hosts not ready yet, waiting ${interval}s... (${elapsed}/${timeout}s elapsed)"
-      fi
+    while [ $elapsed -lt $timeout ]; do
+        if ansible_ping "$platform" >/dev/null 2>&1; then
+            success_count=$((success_count + 1))
+            if [ $success_count -ge $required_success ]; then
+                success "All hosts are ready and stable"
+                return 0
+            else
+                info "Hosts responding, waiting for stability... ($success_count/$required_success)"
+            fi
+        else
+            success_count=0
+            info "Hosts not ready yet, waiting ${interval}s... (${elapsed}/${timeout}s elapsed)"
+        fi
 
-      sleep $interval
-      elapsed=$((elapsed + interval))
-  done
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
 
-  error "Timeout waiting for hosts to be ready"
-  return 1
+    error "Timeout waiting for hosts to be ready"
+    return 1
 }
 
 get_host_info() {
@@ -392,25 +416,42 @@ create_sample_inventory() {
     mkdir -p "$inventory_dir"
 
     cat > "$inventory_file" << 'EOF'
+[bastion]
 
+[load_balancers]
+lb-1 ansible_host=192.168.1.5 ip=192.168.1.5 ansible_user=ubuntu
 
-[masters]
-master-1 ansible_host=192.168.1.10 ansible_user=ubuntu
-master-2 ansible_host=192.168.1.11 ansible_user=ubuntu
-master-3 ansible_host=192.168.1.12 ansible_user=ubuntu
+[etcd]
+etcd-1 ansible_host=192.168.1.10 ip=192.168.1.10 ansible_user=ubuntu
+etcd-2 ansible_host=192.168.1.11 ip=192.168.1.11 ansible_user=ubuntu
+etcd-3 ansible_host=192.168.1.12 ip=192.168.1.12 ansible_user=ubuntu
+
+[control_plane]
+cp-1 ansible_host=192.168.1.20 ip=192.168.1.20 ansible_user=ubuntu
+cp-2 ansible_host=192.168.1.21 ip=192.168.1.21 ansible_user=ubuntu
+cp-3 ansible_host=192.168.1.22 ip=192.168.1.22 ansible_user=ubuntu
 
 [workers]
-worker-1 ansible_host=192.168.1.20 ansible_user=ubuntu
-worker-2 ansible_host=192.168.1.21 ansible_user=ubuntu
-worker-3 ansible_host=192.168.1.22 ansible_user=ubuntu
+worker-1 ansible_host=192.168.1.30 ip=192.168.1.30 ansible_user=ubuntu
+worker-2 ansible_host=192.168.1.31 ip=192.168.1.31 ansible_user=ubuntu
 
 [k8s_cluster:children]
-masters
+control_plane
 workers
 
-[k8s_cluster:vars]
-ansible_ssh_private_key_file=~/.ssh/id_rsa
+[cluster_nodes:children]
+etcd
+k8s_cluster
+
+[services:children]
+load_balancers
+bastion
+
+[all:vars]
+ansible_ssh_private_key_file=/home/ubuntu/.ssh/id_ed25519
 ansible_ssh_common_args='-o StrictHostKeyChecking=no'
+external_etcd_enabled=true
+loadbalancer_enabled=true
 EOF
 
     success "Sample inventory created at: $inventory_file"

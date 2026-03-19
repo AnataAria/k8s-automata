@@ -1,1 +1,134 @@
 ---
+- name: Derive control-plane role state
+  ansible.builtin.set_fact:
+    control_plane_bootstrap_host: "{{ groups['control_plane'][0] }}"
+    control_plane_is_bootstrap: "{{ inventory_hostname == groups['control_plane'][0] }}"
+
+- name: Ensure control-plane artifact directory exists on bootstrap node
+  ansible.builtin.file:
+    path: "{{ control_plane_artifact_dir }}"
+    state: directory
+    mode: "0700"
+  when: control_plane_is_bootstrap | bool
+
+- name: Render kubeadm init configuration on bootstrap node
+  ansible.builtin.template:
+    src: kubeadm-init-config.yaml.j2
+    dest: "{{ control_plane_kubeadm_config_path }}"
+    mode: "0600"
+  when: control_plane_is_bootstrap | bool
+
+- name: Check whether bootstrap control plane is already initialized
+  ansible.builtin.stat:
+    path: "{{ control_plane_admin_kubeconfig }}"
+  register: control_plane_admin_conf
+  when: control_plane_is_bootstrap | bool
+
+- name: Initialize bootstrap control plane
+  ansible.builtin.command: >-
+    kubeadm init
+    --config {{ control_plane_kubeadm_config_path }}
+    {{ control_plane_init_flags }}
+  when:
+    - control_plane_is_bootstrap | bool
+    - not control_plane_admin_conf.stat.exists
+  register: control_plane_init_result
+  changed_when: true
+
+- name: Wait for bootstrap API server to answer locally
+  ansible.builtin.wait_for:
+    host: "{{ control_plane_api_advertise_address }}"
+    port: 6443
+    delay: 5
+    timeout: 180
+  when: control_plane_is_bootstrap | bool
+
+- name: Generate worker join command on bootstrap node
+  ansible.builtin.command: >-
+    kubeadm token create
+    --ttl {{ worker_join_token_ttl }}
+    --print-join-command
+  register: control_plane_worker_join_command
+  changed_when: false
+  when: control_plane_is_bootstrap | bool
+
+- name: Upload control-plane certificates
+  ansible.builtin.command: kubeadm init phase upload-certs --upload-certs
+  register: control_plane_upload_certs
+  changed_when: false
+  when: control_plane_is_bootstrap | bool
+
+- name: Persist worker join script on bootstrap node
+  ansible.builtin.copy:
+    dest: "{{ control_plane_artifact_dir }}/worker-join.sh"
+    mode: "0700"
+    content: |
+      #!/usr/bin/env bash
+      {{ control_plane_worker_join_command.stdout }} \
+        --cri-socket {{ containerd_socket }}
+  when: control_plane_is_bootstrap | bool
+
+- name: Persist control-plane join script on bootstrap node
+  ansible.builtin.copy:
+    dest: "{{ control_plane_artifact_dir }}/control-plane-join.sh"
+    mode: "0700"
+    content: |
+      #!/usr/bin/env bash
+      JOIN_BASE={{ control_plane_worker_join_command.stdout | quote }}
+      CERT_KEY={{ control_plane_upload_certs.stdout_lines[-1] | quote }}
+      CRI_SOCKET={{ containerd_socket | quote }}
+      ${JOIN_BASE} \
+        --control-plane \
+        --certificate-key ${CERT_KEY} \
+        --cri-socket ${CRI_SOCKET}
+  when: control_plane_is_bootstrap | bool
+
+- name: Ensure local artifact directory exists on controller
+  ansible.builtin.file:
+    path: "{{ local_artifact_dir }}/join"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  run_once: true
+
+- name: Fetch durable join scripts to controller
+  ansible.builtin.fetch:
+    src: "{{ control_plane_artifact_dir }}/{{ item }}"
+    dest: "{{ local_artifact_dir }}/join/{{ item }}"
+    flat: true
+  loop:
+    - worker-join.sh
+    - control-plane-join.sh
+  when: control_plane_is_bootstrap | bool
+
+- name: Check whether node is already joined as control plane
+  ansible.builtin.stat:
+    path: /etc/kubernetes/manifests/kube-apiserver.yaml
+  register: control_plane_joined
+  when: not control_plane_is_bootstrap | bool
+
+- name: Read durable control-plane join script from bootstrap node
+  ansible.builtin.slurp:
+    src: "{{ control_plane_artifact_dir }}/control-plane-join.sh"
+  delegate_to: "{{ control_plane_bootstrap_host }}"
+  register: control_plane_join_script
+  when:
+    - not control_plane_is_bootstrap | bool
+    - not control_plane_joined.stat.exists
+
+- name: Stage control-plane join script locally
+  ansible.builtin.copy:
+    dest: "{{ control_plane_join_tempfile }}"
+    mode: "0700"
+    content: "{{ control_plane_join_script.content | b64decode }}"
+  when:
+    - not control_plane_is_bootstrap | bool
+    - not control_plane_joined.stat.exists
+
+- name: Join secondary control-plane node
+  ansible.builtin.command: "{{ control_plane_join_tempfile }}"
+  when:
+    - not control_plane_is_bootstrap | bool
+    - not control_plane_joined.stat.exists
+  register: control_plane_join_result
+  changed_when: true
