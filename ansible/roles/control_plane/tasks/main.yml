@@ -25,36 +25,59 @@
   when: control_plane_is_bootstrap | bool
 
 - name: Initialize bootstrap control plane
-  ansible.builtin.command: >-
-    kubeadm init
-    --config {{ control_plane_kubeadm_config_path }}
-    {{ control_plane_init_flags }}
   when:
     - control_plane_is_bootstrap | bool
     - not control_plane_admin_conf.stat.exists
-  register: control_plane_init_result
-  changed_when: true
+  block:
+    - name: Run kubeadm init on bootstrap node
+      ansible.builtin.command: >-
+        kubeadm init
+        --config {{ control_plane_kubeadm_config_path }}
+        {{ control_plane_init_flags }}
+      register: control_plane_init_result
+      changed_when: true
 
-- name: Wait for bootstrap API server to answer locally
-  ansible.builtin.wait_for:
-    host: "{{ control_plane_api_advertise_address }}"
-    port: 6443
-    delay: 5
-    timeout: 180
-  when: control_plane_is_bootstrap | bool
+    - name: Wait for bootstrap API server to answer locally
+      ansible.builtin.wait_for:
+        host: "{{ control_plane_api_advertise_address }}"
+        port: 6443
+        delay: 5
+        timeout: 180
 
 - name: Generate worker join command on bootstrap node
   ansible.builtin.command: >-
     kubeadm token create
     --ttl {{ worker_join_token_ttl }}
     --print-join-command
+  environment:
+    KUBECONFIG: /etc/kubernetes/super-admin.conf
   register: control_plane_worker_join_command
   changed_when: false
   when: control_plane_is_bootstrap | bool
 
-- name: Upload control-plane certificates
-  ansible.builtin.command: kubeadm init phase upload-certs --upload-certs
-  register: control_plane_upload_certs
+- name: Ensure bootstrap token discovery artifacts exist on bootstrap node
+  ansible.builtin.command: >-
+    kubeadm init phase bootstrap-token
+    --config {{ control_plane_kubeadm_config_path }}
+    --skip-token-print
+  environment:
+    KUBECONFIG: /etc/kubernetes/super-admin.conf
+  changed_when: false
+  when: control_plane_is_bootstrap | bool
+
+- name: Upload kubeadm cluster configuration required for joining nodes
+  ansible.builtin.command: >-
+    kubeadm init phase upload-config all
+    --config {{ control_plane_kubeadm_config_path }}
+    --kubeconfig /etc/kubernetes/super-admin.conf
+  changed_when: false
+  when: control_plane_is_bootstrap | bool
+
+- name: Ensure kube-proxy addon configuration exists on bootstrap node
+  ansible.builtin.command: >-
+    kubeadm init phase addon kube-proxy
+    --config {{ control_plane_kubeadm_config_path }}
+    --kubeconfig /etc/kubernetes/super-admin.conf
   changed_when: false
   when: control_plane_is_bootstrap | bool
 
@@ -75,21 +98,23 @@
     content: |
       #!/usr/bin/env bash
       JOIN_BASE={{ control_plane_worker_join_command.stdout | quote }}
-      CERT_KEY={{ control_plane_upload_certs.stdout_lines[-1] | quote }}
       CRI_SOCKET={{ containerd_socket | quote }}
       ${JOIN_BASE} \
         --control-plane \
-        --certificate-key ${CERT_KEY} \
         --cri-socket ${CRI_SOCKET}
   when: control_plane_is_bootstrap | bool
 
-- name: Ensure local artifact directory exists on controller
+- name: Ensure local artifact directories exist on controller
   ansible.builtin.file:
-    path: "{{ local_artifact_dir }}/join"
+    path: "{{ item }}"
     state: directory
     mode: "0700"
   delegate_to: localhost
+  become: false
   run_once: true
+  loop:
+    - "{{ local_artifact_dir }}/join"
+    - "{{ local_artifact_dir }}/pki/control-plane"
 
 - name: Fetch durable join scripts to controller
   ansible.builtin.fetch:
@@ -99,6 +124,20 @@
   loop:
     - worker-join.sh
     - control-plane-join.sh
+  when: control_plane_is_bootstrap | bool
+
+- name: Fetch shared control-plane PKI material to controller artifacts
+  ansible.builtin.fetch:
+    src: "/etc/kubernetes/pki/{{ item }}"
+    dest: "{{ local_artifact_dir }}/pki/control-plane/{{ item }}"
+    flat: true
+  loop:
+    - ca.crt
+    - ca.key
+    - sa.pub
+    - sa.key
+    - front-proxy-ca.crt
+    - front-proxy-ca.key
   when: control_plane_is_bootstrap | bool
 
 - name: Check whether node is already joined as control plane
@@ -121,6 +160,31 @@
     dest: "{{ control_plane_join_tempfile }}"
     mode: "0700"
     content: "{{ control_plane_join_script.content | b64decode }}"
+  when:
+    - not control_plane_is_bootstrap | bool
+    - not control_plane_joined.stat.exists
+
+- name: Ensure Kubernetes PKI directory exists on secondary control-plane nodes
+  ansible.builtin.file:
+    path: /etc/kubernetes/pki
+    state: directory
+    mode: "0700"
+  when:
+    - not control_plane_is_bootstrap | bool
+    - not control_plane_joined.stat.exists
+
+- name: Copy shared control-plane PKI material to secondary control-plane nodes
+  ansible.builtin.copy:
+    src: "{{ local_artifact_dir }}/pki/control-plane/{{ item }}"
+    dest: "/etc/kubernetes/pki/{{ item }}"
+    mode: "{{ '0600' if item.endswith('.key') else '0644' }}"
+  loop:
+    - ca.crt
+    - ca.key
+    - sa.pub
+    - sa.key
+    - front-proxy-ca.crt
+    - front-proxy-ca.key
   when:
     - not control_plane_is_bootstrap | bool
     - not control_plane_joined.stat.exists

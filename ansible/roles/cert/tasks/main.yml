@@ -5,6 +5,7 @@
     cert_control_plane_hosts: "{{ groups['control_plane'] }}"
     cert_generation_host: "{{ cert_generation_delegate | default(groups['etcd'][0]) }}"
     cert_etcd_kubeadm_config_path: "{{ kubeadm_artifact_dir }}/etcd-cert-kubeadm-config.yaml"
+    cert_control_plane_kubeadm_config_path: "{{ kubeadm_artifact_dir }}/etcd-cert-kubeadm-config.yaml"
 
 - name: Assert certificate topology prerequisites
   ansible.builtin.assert:
@@ -105,8 +106,8 @@
     group: etcd
     system: true
     shell: /usr/sbin/nologin
-    home: "{{ etcd_data_dir }}"
-    create_home: false
+    home: "{{ cert_etcd_data_dir }}"
+    create_home: true
     state: present
   when: inventory_hostname in cert_etcd_hosts
 
@@ -123,7 +124,7 @@
 
 - name: Ensure etcd certificate directory exists on etcd nodes
   ansible.builtin.file:
-    path: "{{ etcd_cert_dir }}"
+    path: "{{ cert_etcd_cert_dir }}"
     state: directory
     owner: etcd
     group: etcd
@@ -140,12 +141,40 @@
     - crt
     - key
 
+- name: Copy shared CA material to control plane kubeadm PKI workspace
+  ansible.builtin.copy:
+    src: "{{ cert_local_artifact_dir }}/ca.{{ item }}"
+    dest: "{{ cert_kubeadm_cert_dir }}/etcd/ca.{{ item }}"
+    mode: "{{ '0600' if item == 'key' else '0644' }}"
+  when: inventory_hostname in cert_control_plane_hosts
+  loop:
+    - crt
+    - key
+
 - name: Render kubeadm certificate configuration for etcd nodes
   ansible.builtin.template:
     src: cert-kubeadm-config.yaml.j2
     dest: "{{ cert_etcd_kubeadm_config_path }}"
     mode: "0600"
   when: inventory_hostname in cert_etcd_hosts
+  vars:
+    cert_target_addresses: >-
+      {{
+        [
+          inventory_hostname,
+          ansible_host,
+          (ip | default(access_ip | default(ansible_host))),
+          'localhost',
+          '127.0.0.1'
+        ] | unique
+      }}
+
+- name: Render kubeadm certificate configuration for control plane nodes
+  ansible.builtin.template:
+    src: cert-kubeadm-config.yaml.j2
+    dest: "{{ cert_control_plane_kubeadm_config_path }}"
+    mode: "0600"
+  when: inventory_hostname in cert_control_plane_hosts
   vars:
     cert_target_addresses: >-
       {{
@@ -203,7 +232,7 @@
 - name: Copy kubeadm-generated etcd runtime certificates into etcd service PKI directory
   ansible.builtin.copy:
     src: "{{ cert_kubeadm_cert_dir }}/etcd/{{ item }}"
-    dest: "{{ etcd_cert_dir }}/{{ item }}"
+    dest: "{{ cert_etcd_cert_dir }}/{{ item }}"
     remote_src: true
     owner: etcd
     group: etcd
@@ -228,19 +257,16 @@
     - "{{ cert_kubeadm_cert_dir }}"
     - "{{ cert_kubeadm_cert_dir }}/etcd"
 
-- name: Copy external etcd CA certificate to control-plane nodes
-  ansible.builtin.copy:
-    src: "{{ cert_local_artifact_dir }}/ca.crt"
-    dest: "{{ cert_kubeadm_cert_dir }}/etcd/ca.crt"
-    mode: "0644"
+- name: Generate etcd healthcheck client certificate on each etcd node
+  ansible.builtin.command:
+    argv:
+      - kubeadm
+      - init
+      - phase
+      - certs
+      - apiserver-etcd-client
+      - --config
+      - "{{ cert_control_plane_kubeadm_config_path }}"
+  args:
+    creates: "{{ cert_kubeadm_cert_dir }}/apiserver-etcd-client.crt"
   when: inventory_hostname in cert_control_plane_hosts
-
-- name: Copy apiserver-etcd-client certificates to control-plane nodes
-  ansible.builtin.copy:
-    src: "{{ cert_control_plane_artifact_dir }}/{{ item }}"
-    dest: "{{ cert_kubeadm_cert_dir }}/{{ item }}"
-    mode: "{{ '0600' if item.endswith('.key') else '0644' }}"
-  when: inventory_hostname in cert_control_plane_hosts
-  loop:
-    - apiserver-etcd-client.crt
-    - apiserver-etcd-client.key

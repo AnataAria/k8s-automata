@@ -121,6 +121,7 @@
       {{ (groups['control_plane'] | length) + (groups['workers'] | length) }}
     external_etcd_endpoints: >-
       {% set ns = namespace(items=[]) %}
+      {% set etcd_client_port_value = etcd_client_port | default(2379) %}
       {% for host in groups['etcd'] %}
       {% set host_ip =
         hostvars[host].ip
@@ -129,7 +130,7 @@
             | default(hostvars[host].ansible_host)
           )
       %}
-      {% set _ = ns.items.append('https://' ~ host_ip ~ ':' ~ etcd_client_port) %}
+      {% set _ = ns.items.append('https://' ~ host_ip ~ ':' ~ etcd_client_port_value) %}
       {% endfor %}
       {{ ns.items | join(',') }}
   tasks:
@@ -153,19 +154,20 @@
       register: kube_system_pods
       changed_when: false
 
-    - name: Verify external etcd endpoints from bootstrap control plane
+    - name: Verify external etcd endpoints from primary etcd node
       ansible.builtin.command:
         argv:
-          - /usr/local/bin/etcdctl
+          - "{{ hostvars[groups['etcd'][0]].etcd_bin_dir | default(etcd_bin_dir | default('/usr/local/bin')) }}/etcdctl"
           - endpoint
           - health
           - "--endpoints={{ external_etcd_endpoints | trim }}"
-          - --cacert=/etc/kubernetes/pki/etcd/ca.crt
-          - --cert=/etc/kubernetes/pki/apiserver-etcd-client.crt
-          - --key=/etc/kubernetes/pki/apiserver-etcd-client.key
+          - "--cacert={{ hostvars[groups['etcd'][0]].etcd_cert_dir | default(etcd_cert_dir | default('/etc/etcd/pki')) }}/ca.crt"
+          - "--cert={{ hostvars[groups['etcd'][0]].etcd_cert_dir | default(etcd_cert_dir | default('/etc/etcd/pki')) }}/healthcheck-client.crt"
+          - "--key={{ hostvars[groups['etcd'][0]].etcd_cert_dir | default(etcd_cert_dir | default('/etc/etcd/pki')) }}/healthcheck-client.key"
       environment:
         ETCDCTL_API: "3"
       changed_when: false
+      delegate_to: "{{ groups['etcd'][0] }}"
       when: external_etcd_enabled | bool
 
     - name: Print node status summary

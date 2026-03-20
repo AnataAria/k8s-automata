@@ -3,3 +3,6 @@ cert_kubeadm_cert_dir: "/etc/kubernetes/pki"
 cert_local_artifact_dir: "{{ local_artifact_dir }}/pki"
 cert_control_plane_artifact_dir: "{{ cert_local_artifact_dir }}/control-plane"
 cert_generation_delegate: "{{ groups['etcd'][0] }}"
+
+cert_etcd_data_dir: "{{ etcd_data_dir | default('/var/lib/etcd') }}"
+cert_etcd_cert_dir: "{{ etcd_cert_dir | default('/etc/etcd/pki') }}"

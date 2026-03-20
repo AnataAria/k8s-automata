@@ -20,7 +20,7 @@ etcd:
   external:
     endpoints:
 {% for host in groups['etcd'] %}
-      - "https://{{ hostvars[host].ip | default(hostvars[host].access_ip | default(hostvars[host].ansible_host)) }}:{{ etcd_client_port }}"
+      - "https://{{ hostvars[host].ip | default(hostvars[host].access_ip | default(hostvars[host].ansible_host)) }}:{{ control_plane_etcd_client_port }}"
 {% endfor %}
     caFile: "/etc/kubernetes/pki/etcd/ca.crt"
     certFile: "/etc/kubernetes/pki/apiserver-etcd-client.crt"

@@ -17,8 +17,4 @@ loadbalancer_health_checks:
   fall: 3
   rise: 2
 loadbalancer_balance_algorithm: roundrobin
-loadbalancer_stats:
-  enabled: true
-  user: admin
-  password: admin123
 loadbalancer_configure_firewall: false

@@ -4,4 +4,8 @@ control_plane_admin_kubeconfig: /etc/kubernetes/admin.conf
 control_plane_artifact_dir: "{{ kubeadm_artifact_dir }}"
 control_plane_init_flags: ""
 control_plane_join_tempfile: /tmp/kubeadm-control-plane-join.sh
-control_plane_api_advertise_address: "{{ ip | default(access_ip | default(ansible_host)) }}"
+
+control_plane_node_ip: "{{ ip | default(access_ip | default(ansible_host)) }}"
+control_plane_api_advertise_address: "{{ control_plane_node_ip }}"
+
+control_plane_etcd_client_port: "{{ etcd_client_port | default(2379) }}"
