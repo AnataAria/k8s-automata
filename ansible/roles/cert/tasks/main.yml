@@ -5,7 +5,7 @@
     cert_control_plane_hosts: "{{ groups['control_plane'] }}"
     cert_generation_host: "{{ cert_generation_delegate | default(groups['etcd'][0]) }}"
     cert_etcd_kubeadm_config_path: "{{ kubeadm_artifact_dir }}/etcd-cert-kubeadm-config.yaml"
-    cert_control_plane_kubeadm_config_path: "{{ kubeadm_artifact_dir }}/etcd-cert-kubeadm-config.yaml"
+    cert_control_plane_kubeadm_config_path: "{{ kubeadm_artifact_dir }}/plane-cert-kubeadm-config.yaml"
 
 - name: Assert certificate topology prerequisites
   ansible.builtin.assert:
@@ -153,7 +153,7 @@
 
 - name: Render kubeadm certificate configuration for etcd nodes
   ansible.builtin.template:
-    src: cert-kubeadm-config.yaml.j2
+    src: cert-etcd-config.yaml.j2
     dest: "{{ cert_etcd_kubeadm_config_path }}"
     mode: "0600"
   when: inventory_hostname in cert_etcd_hosts
@@ -169,9 +169,28 @@
         ] | unique
       }}
 
-- name: Render kubeadm certificate configuration for control plane nodes
+- name: Render kubeadm etcd certificate configuration for control plane nodes
   ansible.builtin.template:
-    src: cert-kubeadm-config.yaml.j2
+    src: cert-etcd-config.yaml.j2
+    dest: "{{ cert_etcd_kubeadm_config_path }}"
+    mode: "0600"
+  when: inventory_hostname in cert_control_plane_hosts
+  vars:
+    cert_target_addresses: >-
+      {{
+        [
+          inventory_hostname,
+          ansible_host,
+          (ip | default(access_ip | default(ansible_host))),
+          'localhost',
+          '127.0.0.1'
+        ] | unique
+      }}
+
+
+- name: Render kubeadm api server certificate configuration for control plane nodes
+  ansible.builtin.template:
+    src: cert-plane-config.yaml.j2
     dest: "{{ cert_control_plane_kubeadm_config_path }}"
     mode: "0600"
   when: inventory_hostname in cert_control_plane_hosts
