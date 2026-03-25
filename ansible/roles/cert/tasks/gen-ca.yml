@@ -1,0 +1,116 @@
+---
+- name: Create tmp pki dirs on controller
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0700'
+  loop:
+    - "{{ cert_local_artifact_dir }}"
+    - "{{ cert_etcd_local_artifact_dir }}"
+  delegate_to: localhost
+  run_once: true
+
+- name: Check CA key existed in Hashicorp Vault
+  community.hashi_vault.vault_read:
+    url: "{{ vault_addr }}"
+    path: "{{ vault_path }}/etcd-ca"
+    auth_method: token
+    token: "{{ vault_token }}"
+  register: cert_vault_ca_check
+  failed_when: false
+  delegate_to: localhost
+  run_once: true
+
+- name: Set mode - bootstrap or scale
+  ansible.builtin.set_fact:
+    cert_cluster_mode: "{{ 'bootstrap' if cert_vault_ca_check.data is none else 'scale' }}"
+  delegate_to: localhost
+  run_once: true
+
+- name: Generate etcd CA (bootstrap mode)
+  ansible.builtin.command:
+    argv:
+      - kubeadm
+      - init
+      - phase
+      - certs
+      - etcd-ca
+      - --cert-dir
+      - "{{ cert_etcd_local_artifact_dir }}"
+  args:
+    creates: "{{ cert_etcd_local_artifact_dir }}/ca.crt"
+  delegate_to: localhost
+  run_once: true
+  when: cert_cluster_mode == 'bootstrap'
+
+- name: Generate CA control plane
+  ansible.builtin.command:
+    argv:
+      - kubeadm
+      - init
+      - phase
+      - certs
+      - ca
+      - --cert-dir
+      - "{{ cert_local_artifact_dir }}"
+  args:
+    creates: "{{ cert_local_artifact_dir }}/ca.crt"
+  delegate_to: localhost
+  run_once: true
+  when: cert_cluster_mode == 'bootstrap'
+
+- name: Generate front proxy CA
+  ansible.builtin.command:
+    argv:
+      - kubeadm
+      - init
+      - phase
+      - certs
+      - front-proxy-ca
+      - --cert-dir
+      - "{{ cert_local_artifact_dir }}"
+  args:
+    creates: "{{ cert_local_artifact_dir }}/front-proxy-ca.crt"
+  delegate_to: localhost
+  run_once: true
+  when: cert_cluster_mode == 'bootstrap'
+
+- name: Generate SA key pair
+  ansible.builtin.command:
+    argv:
+      - kubeadm
+      - init
+      - phase
+      - certs
+      - sa
+      - --cert-dir
+      - "{{ cert_local_artifact_dir }}"
+  args:
+    creates: "{{ cert_local_artifact_dir }}/sa.pub"
+  run_once: true
+  delegate_to: localhost
+  when: cert_cluster_mode == 'bootstrap'
+
+- name: Store all CA keys to Hashi Vault
+  community.hashi_vault.vault_write:
+    path: "{{ vault_path }}/{{ item.secret }}"
+    data:
+      crt: "{{ lookup('file', cert_local_artifact_dir + item.crt) }}"
+      key: "{{ lookup('file', cert_local_artifact_dir + item.key) }}"
+  loop:
+    - { secret: etcd-ca, crt: etcd/ca.crt, key: etcd/ca.key}
+    - { secret: k8s-ca, crt: ca.crt, key: ca.key}
+    - { secret: front-proxy-ca, crt: front-proxy-ca.crt, key: front-proxy-ca.key}
+    - { secret: sa-keypair, crt: sa.pub, key: sa.key}
+  delegate_to: localhost
+  run_once: true
+  no_log: true
+  when: cert_cluster_mode == 'bootstrap'
+
+- name: Cleanup temp PKI from controller
+  ansible.builtin.file:
+    path: "{{ cert_local_artifact_dir }}"
+    state: absent
+  delegate_to: localhost
+  run_once: true
+  when: cert_cluster_mode == 'bootstrap'

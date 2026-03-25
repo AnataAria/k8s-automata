@@ -1,0 +1,85 @@
+---
+- name: Get etcd CA from Hashi Vault
+  community.hashi_vault.vault_read:
+    url: "{{ vault_addr }}"
+    path: "{{ vault_path }}/etcd-ca"
+    auth_method: token
+    token: "{{ vault_token }}"
+  register: cert_vault_etcd_ca
+  delegate_to: localhost
+  run_once: true
+  no_log: true
+
+- name: Get Kubernetes CA from Hashi Vault
+  community.hashi_vault.vault_read:
+    url: "{{ vault_addr }}"
+    path: "{{ vault_path }}/k8s-ca"
+    auth_method: token
+    token: "{{ vault_token }}"
+  register: cert_vault_k8s_ca
+  delegate_to: localhost
+  run_once: true
+  no_log: true
+
+- name: Get front proxy CA from Hashi Vault
+  community.hashi_vault.vault_read:
+    url: "{{ vault_addr }}"
+    path: "{{ vault_path }}/front-proxy-ca"
+    auth_method: token
+    token: "{{ vault_token }}"
+  register: cert_vault_front_proxy_ca
+  delegate_to: localhost
+  run_once: true
+  no_log: true
+
+- name: Get service account key pair from Hashi Vault
+  community.hashi_vault.vault_read:
+    url: "{{ vault_addr }}"
+    path: "{{ vault_path }}/sa-keypair"
+    auth_method: token
+    token: "{{ vault_token }}"
+  register: cert_vault_sa_keypair
+  delegate_to: localhost
+  run_once: true
+  no_log: true
+
+- name: Create etcd PKI dir
+  ansible.builtin.file:
+    path: "{{ cert_k8s_etcd_pki_dir }}"
+    state: directory
+    mode: '0700'
+  when: inventory_hostname in cert_etcd_hosts
+
+- name: Create etcd binary PKI dir
+  ansible.builtin.file:
+    path: "{{ cert_k8s_etcd_pki_dir }}"
+    state: directory
+    mode: '0700'
+  when: inventory_hostname in cert_etcd_hosts
+
+- name: Push etcd CA to etcd node
+  ansible.builtin.copy:
+    content: "{{ item.content }}"
+    dest: "{{ cert_k8s_etcd_pki_dir }}/{{ item.dest }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { content: "{{ cert_vault_etcd_ca.data.data.crt }}", dest: ca.crt, mode: '0644' }
+    - { content: "{{ cert_vault_etcd_ca.data.data.key }}", dest: ca.key, mode: '0600' }
+  when: inventory_hostname in cert_etcd_hosts
+  no_log: true
+
+- name: Create K8s PKI dirs on control plane
+  ansible.builtin.copy:
+    content: "{{ item.content }}"
+    dest: "{{ cert_k8s_pki_dir }}/{{ item.dest }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { content: "{{ cert_vault_k8s_ca.data.data.crt }}", dest: ca.crt, mode: '0644' }
+    - { content: "{{ cert_vault_k8s_ca.data.data.key }}", dest: ca.key, mode: '0600' }
+    - { content: "{{ cert_vault_etcd_ca.data.data.crt }}", dest: etcd/ca.crt, mode: '0644' }
+    - { content: "{{ cert_vault_front_proxy_ca.data.data.crt }}", dest: front-proxy-ca.crt, mode: '0644' }
+    - { content: "{{ cert_vault_front_proxy_ca.data.data.key }}", dest: front-proxy-ca.key, mode: '0600' }
+    - { content: "{{ cert_vault_sa_keypair.data.data.crt }}", dest: sa.pub, mode: '0644' }
+    - { content: "{{ cert_vault_sa_keypair.data.data.key }}", dest: sa.key, mode: '0600'}
+  when: inventory_hostname in cert_control_plane_hosts
+  no_log: true
