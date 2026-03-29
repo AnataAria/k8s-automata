@@ -12,10 +12,10 @@
 
 - name: Check CA key existed in Hashicorp Vault
   community.hashi_vault.vault_read:
-    url: "{{ vault_addr }}"
-    path: "{{ vault_path }}/etcd-ca"
+    url: "{{ cert_vault_addr }}"
+    path: "{{ cert_vault_path }}/etcd-ca"
     auth_method: token
-    token: "{{ vault_token }}"
+    token: "{{ cert_vault_token }}"
   register: cert_vault_ca_check
   failed_when: false
   delegate_to: localhost
@@ -23,7 +23,13 @@
 
 - name: Set mode - bootstrap or scale
   ansible.builtin.set_fact:
-    cert_cluster_mode: "{{ 'bootstrap' if cert_vault_ca_check.data is none else 'scale' }}"
+    cert_ca_existed: >-
+      {{
+        cert_vault_ca_check is not skipped and
+        cert_vault_ca_check is not failed and
+        cert_vault_ca_check.data is not none and
+        cert_vault_ca_check.data | length > 0
+      }}
   delegate_to: localhost
   run_once: true
 
@@ -41,7 +47,7 @@
     creates: "{{ cert_etcd_local_artifact_dir }}/ca.crt"
   delegate_to: localhost
   run_once: true
-  when: cert_cluster_mode == 'bootstrap'
+  when: not cert_ca_existed
 
 - name: Generate CA control plane
   ansible.builtin.command:
@@ -57,7 +63,7 @@
     creates: "{{ cert_local_artifact_dir }}/ca.crt"
   delegate_to: localhost
   run_once: true
-  when: cert_cluster_mode == 'bootstrap'
+  when: not cert_ca_existed
 
 - name: Generate front proxy CA
   ansible.builtin.command:
@@ -73,7 +79,7 @@
     creates: "{{ cert_local_artifact_dir }}/front-proxy-ca.crt"
   delegate_to: localhost
   run_once: true
-  when: cert_cluster_mode == 'bootstrap'
+  when: not cert_ca_existed
 
 - name: Generate SA key pair
   ansible.builtin.command:
@@ -89,11 +95,14 @@
     creates: "{{ cert_local_artifact_dir }}/sa.pub"
   run_once: true
   delegate_to: localhost
-  when: cert_cluster_mode == 'bootstrap'
+  when: not cert_ca_existed
 
 - name: Store all CA keys to Hashi Vault
   community.hashi_vault.vault_write:
-    path: "{{ vault_path }}/{{ item.secret }}"
+    url: "{{ cert_vault_addr }}"
+    path: "{{ cert_vault_path }}/{{ item.secret }}"
+    auth_method: token
+    token: "{{ cert_vault_token }}"
     data:
       crt: "{{ lookup('file', cert_local_artifact_dir + item.crt) }}"
       key: "{{ lookup('file', cert_local_artifact_dir + item.key) }}"
@@ -105,12 +114,15 @@
   delegate_to: localhost
   run_once: true
   no_log: true
-  when: cert_cluster_mode == 'bootstrap'
+  when: not cert_ca_existed
 
 - name: Cleanup temp PKI from controller
   ansible.builtin.file:
-    path: "{{ cert_local_artifact_dir }}"
+    path: "{{ item }}"
     state: absent
+  loop:
+    - "{{ cert_etcd_local_artifact_dir }}"
+    - "{{ cert_local_artifact_dir }}"
   delegate_to: localhost
   run_once: true
-  when: cert_cluster_mode == 'bootstrap'
+  when: not cert_ca_existed

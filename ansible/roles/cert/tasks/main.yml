@@ -1,6 +1,7 @@
 ---
 - name: Generate CA key
   ansible.builtin.import_tasks: gen-ca.yml
+  when: cert_initial_cluster_state == 'new'
 
 - name: Distribute CA to nodes
   ansible.builtin.import_tasks: distribute-ca.yml

@@ -1,0 +1,74 @@
+---
+argument_specs:
+  main:
+    short_description: This roles is for provide cert distribute for all nodes k8s
+    description: This roles is for provide cert distribute for all nodes k8s
+    options:
+      cert_etcd_hosts:
+        type: list
+        elements: str
+        required: false
+        default: "{{ groups['etcd'] }}"
+        description: "host list in etcd groups"
+      cert_control_plane_hosts:
+        type: list
+        elements: str
+        required: false
+        default: "{{ groups['control_plane'] }}"
+        description: "host list in control plane groups"
+      cert_k8s_etcd_pki_dir:
+        type: path
+        required: false
+        default: "/etc/kubernetes/pki/etcd"
+        description: "PKI for k8s etcd"
+      cert_k8s_pki_dir:
+        type: path
+        required: false
+        default: "/etc/kubernetes/pki"
+        description: "PKI dir for k8s"
+      cert_kubeadm_cert_dir:
+        type: path
+        required: false
+        default: "{{ cert_k8s_pki_dir }}"
+        description: "kubeadm cert dir"
+      cert_etcd_kubeadm_config_path:
+        type: path
+        required: false
+        default: "{{ kubeadm_artifact_dir }}/etcd-cert-kubeadm-config.yaml"
+        description: "kubeadm config path for etcd cert"
+      cert_control_plane_kubeadm_config_path:
+        type: path
+        required: false
+        default: "{{ kubeadm_artifact_dir }}/plane-cert-kubeadm-config.yaml"
+        description: "kubeadm config path for control plane cert"
+      cert_local_artifact_dir:
+        type: path
+        required: false
+        default: "{{ local_artifact_dir }}/pki"
+        description: "local artifact dir for cert"
+      cert_etcd_local_artifact_dir:
+        type: path
+        required: false
+        default: "{{ cert_local_artifact_dir }}/etcd"
+        description: "local artifact dir for etcd cert"
+      cert_etcd_data_dir:
+        type: path
+        required: false
+        default: "/var/lib/etcd"
+        description: "etcd data dir"
+      cert_etcd_cert_dir:
+        type: path
+        required: false
+        default: "/etc/etcd/pki"
+        description: "etcd cert dirs"
+      cert_vault_url:
+        type: str
+        required: true
+        description: "hashicorp vault url"
+      cert_initial_cluster_state:
+        type: str
+        default: "new"
+        description: This is trigger for cluster mode or scale mode
+        choices:
+          - "new"
+          - "scale"

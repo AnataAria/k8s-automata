@@ -1,85 +1,96 @@
 ---
-- name: Get etcd CA from Hashi Vault
+- name: Get etcd CA from Vault
   community.hashi_vault.vault_read:
-    url: "{{ vault_addr }}"
-    path: "{{ vault_path }}/etcd-ca"
+    url: "{{ cert_vault_addr }}"
+    path: "{{ cert_vault_path }}/etcd-ca"
     auth_method: token
-    token: "{{ vault_token }}"
+    token: "{{ cert_vault_token }}"
   register: cert_vault_etcd_ca
   delegate_to: localhost
   run_once: true
   no_log: true
 
-- name: Get Kubernetes CA from Hashi Vault
+- name: Get k8s CA from Vault
   community.hashi_vault.vault_read:
-    url: "{{ vault_addr }}"
-    path: "{{ vault_path }}/k8s-ca"
+    url: "{{ cert_vault_addr }}"
+    path: "{{ cert_vault_path }}/k8s-ca"
     auth_method: token
-    token: "{{ vault_token }}"
+    token: "{{ cert_vault_token }}"
   register: cert_vault_k8s_ca
   delegate_to: localhost
   run_once: true
   no_log: true
 
-- name: Get front proxy CA from Hashi Vault
+- name: Get front proxy CA from Vault
   community.hashi_vault.vault_read:
-    url: "{{ vault_addr }}"
-    path: "{{ vault_path }}/front-proxy-ca"
+    url: "{{ cert_vault_addr }}"
+    path: "{{ cert_vault_path }}/front-proxy-ca"
     auth_method: token
-    token: "{{ vault_token }}"
+    token: "{{ cert_vault_token }}"
   register: cert_vault_front_proxy_ca
   delegate_to: localhost
   run_once: true
   no_log: true
 
-- name: Get service account key pair from Hashi Vault
+- name: Get SA key pair from Vault
   community.hashi_vault.vault_read:
-    url: "{{ vault_addr }}"
-    path: "{{ vault_path }}/sa-keypair"
+    url: "{{ cert_vault_addr }}"
+    path: "{{ cert_vault_path }}/sa-keypair"
     auth_method: token
-    token: "{{ vault_token }}"
+    token: "{{ cert_vault_token }}"
   register: cert_vault_sa_keypair
   delegate_to: localhost
   run_once: true
   no_log: true
 
-- name: Create etcd PKI dir
+# ── Etcd nodes ─────────────────────────────────────────────────
+- name: Create PKI dirs on etcd node
   ansible.builtin.file:
-    path: "{{ cert_k8s_etcd_pki_dir }}"
+    path: "{{ item }}"
     state: directory
     mode: '0700'
-  when: inventory_hostname in cert_etcd_hosts
-
-- name: Create etcd binary PKI dir
-  ansible.builtin.file:
-    path: "{{ cert_k8s_etcd_pki_dir }}"
-    state: directory
-    mode: '0700'
+  loop:
+    - "{{ cert_k8s_etcd_pki_dir }}"
+    - "{{ cert_etcd_cert_dir }}"
   when: inventory_hostname in cert_etcd_hosts
 
 - name: Push etcd CA to etcd node
   ansible.builtin.copy:
     content: "{{ item.content }}"
-    dest: "{{ cert_k8s_etcd_pki_dir }}/{{ item.dest }}"
+    dest: "{{ item.dest }}"
     mode: "{{ item.mode }}"
   loop:
-    - { content: "{{ cert_vault_etcd_ca.data.data.crt }}", dest: ca.crt, mode: '0644' }
-    - { content: "{{ cert_vault_etcd_ca.data.data.key }}", dest: ca.key, mode: '0600' }
+    - { content: "{{ cert_vault_etcd_ca.data.data.crt }}", dest: "{{ cert_k8s_etcd_pki_dir }}/ca.crt", mode: '0644' }
+    - { content: "{{ cert_vault_etcd_ca.data.data.key }}", dest: "{{ cert_k8s_etcd_pki_dir }}/ca.key", mode: '0600' }
+    - { content: "{{ cert_vault_etcd_ca.data.data.crt }}", dest: "{{ cert_etcd_cert_dir }}/ca.crt", mode: '0644' }
+    - { content: "{{ cert_vault_etcd_ca.data.data.key }}", dest: "{{ cert_etcd_cert_dir }}/ca.key", mode: '0600' }
   when: inventory_hostname in cert_etcd_hosts
   no_log: true
 
-- name: Create K8s PKI dirs on control plane
+# ── Control plane nodes ────────────────────────────────────────
+- name: Create PKI dirs on control plane
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0700'
+  loop:
+    - "{{ cert_k8s_pki_dir }}"
+    - "{{ cert_k8s_etcd_pki_dir }}"
+  when: inventory_hostname in cert_control_plane_hosts
+
+- name: Push CAs to control plane
   ansible.builtin.copy:
     content: "{{ item.content }}"
-    dest: "{{ cert_k8s_pki_dir }}/{{ item.dest }}"
+    dest: "{{ item.dest }}"
     mode: "{{ item.mode }}"
   loop:
-    - { content: "{{ cert_vault_k8s_ca.data.data.crt }}", dest: ca.crt, mode: '0644' }
-    - { content: "{{ cert_vault_k8s_ca.data.data.key }}", dest: ca.key, mode: '0600' }
-    - { content: "{{ cert_vault_etcd_ca.data.data.crt }}", dest: etcd/ca.crt, mode: '0644' }
-    - { content: "{{ cert_vault_front_proxy_ca.data.data.crt }}", dest: front-proxy-ca.crt, mode: '0644' }
-    - { content: "{{ cert_vault_front_proxy_ca.data.data.key }}", dest: front-proxy-ca.key, mode: '0600' }
-    - { content: "{{ cert_vault_sa_keypair.data.data.crt }}", dest: sa.pub, mode: '0644' }
-    - { content: "{{ cert_vault_sa_keypair.data.data.key }}", dest: sa.key, mode: '0600'}
+    - { content: "{{ cert_vault_k8s_ca.data.data.crt }}", dest: "{{ cert_k8s_pki_dir }}/ca.crt", mode: '0644' }
+    - { content: "{{ cert_vault_k8s_ca.data.data.key }}", dest: "{{ cert_k8s_pki_dir }}/ca.key", mode: '0600' }
+    - { content: "{{ cert_vault_etcd_ca.data.data.crt }}", dest: "{{ cert_k8s_etcd_pki_dir }}/ca.crt", mode: '0644' }
+    - { content: "{{ cert_vault_etcd_ca.data.data.key }}", dest: "{{ cert_k8s_etcd_pki_dir }}/ca.key", mode: '0600' }
+    - { content: "{{ cert_vault_front_proxy_ca.data.data.crt }}", dest: "{{ cert_k8s_pki_dir }}/front-proxy-ca.crt", mode: '0644' }
+    - { content: "{{ cert_vault_front_proxy_ca.data.data.key }}", dest: "{{ cert_k8s_pki_dir }}/front-proxy-ca.key", mode: '0600' }
+    - { content: "{{ cert_vault_sa_keypair.data.data.crt }}", dest: "{{ cert_k8s_pki_dir }}/sa.pub", mode: '0644' }
+    - { content: "{{ cert_vault_sa_keypair.data.data.key }}", dest: "{{ cert_k8s_pki_dir }}/sa.key", mode: '0600' }
   when: inventory_hostname in cert_control_plane_hosts
   no_log: true

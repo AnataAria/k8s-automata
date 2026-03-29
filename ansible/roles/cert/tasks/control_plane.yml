@@ -1,39 +1,19 @@
----
 - name: Ensure kubeadm PKI workspace existed on control plane node
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
     mode: "0700"
-  when: inventory_hostname in cert_control_plane_hosts
   loop:
     - "{{ kubeadm_artifact_dir }}"
     - "{{ cert_kubeadm_cert_dir }}"
-    - "{{ cert_kubeadm_cert_dir }}/etcd"
-
-- name: Render kubeadm etcd certificate configuration for control plane nodes
-  ansible.builtin.template:
-    src: cert-etcd-config.yaml.j2
-    dest: "{{ cert_etcd_kubeadm_config_path }}"
-    mode: "0600"
+    - "{{ cert_k8s_etcd_pki_dir }}"
   when: inventory_hostname in cert_control_plane_hosts
-  vars:
-    cert_target_addresses: >-
-      {{
-        [
-          inventory_hostname,
-          ansible_host,
-          (ip | default(access_ip | default(ansible_host))),
-          'localhost',
-          '127.0.0.1'
-        ] | unique
-      }}
 
-- name: Render kubeadm server certificate configuration for control plane nodes
+- name: Render kubeadm config for control plane nodes
   ansible.builtin.template:
     src: cert-plane-config.yaml.j2
     dest: "{{ cert_control_plane_kubeadm_config_path }}"
     mode: "0600"
-  when: inventory_hostname in cert_control_plane_hosts
   vars:
     cert_target_addresses: >-
       {{
@@ -45,8 +25,9 @@
           '127.0.0.1'
         ] | unique
       }}
+  when: inventory_hostname in cert_control_plane_hosts
 
-- name: Generate etcd server client certificate on each control plane nodes
+- name: Generate apiserver-etcd-client certificate
   ansible.builtin.command:
     argv:
       - kubeadm
@@ -56,11 +37,10 @@
       - apiserver-etcd-client
       - --config
       - "{{ cert_control_plane_kubeadm_config_path }}"
-  args:
-    creates: "{{ cert_kubeadm_cert_dir }}/apiserver-etcd-client.crt"
+    creates: "{{ cert_k8s_pki_dir }}/apiserver-etcd-client.crt"
   when: inventory_hostname in cert_control_plane_hosts
 
-- name: Generate control plane certificate on each control plane nodes
+- name: Generate control plane certificates
   ansible.builtin.command:
     argv:
       - kubeadm
@@ -70,13 +50,9 @@
       - "{{ item.phase }}"
       - --config
       - "{{ cert_control_plane_kubeadm_config_path }}"
-  args:
-    creates: "{{ cert_kubeadm_cert_dir }}/{{ item.creates }}"
+    creates: "{{ cert_k8s_pki_dir }}/{{ item.creates }}"
   loop:
-    - { phase: apiserver,
-        creates: apiserver.crt }
-    - { phase: apiserver-kubelet-client,
-        creates: apiserver-kubelet-client.crt }
-    - { phase: front-proxy-client,
-        creates: front-proxy-client.crt }
+    - { phase: apiserver, creates: apiserver.crt }
+    - { phase: apiserver-kubelet-client, creates: apiserver-kubelet-client.crt }
+    - { phase: front-proxy-client, creates: front-proxy-client.crt }
   when: inventory_hostname in cert_control_plane_hosts
