@@ -231,3 +231,13 @@ variable "k8s_config" {
     etcd_ha      = true
   }
 }
+
+variable "hashicorp_vault_config" {
+  type = object({
+    addr = string
+  })
+  description = "Hashicorp vault config"
+  default = {
+    addr = "https://localhost:8200"
+  }
+}

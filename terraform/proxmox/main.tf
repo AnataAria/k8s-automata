@@ -14,3 +14,8 @@ provider "proxmox" {
   pm_api_token_secret = var.proxmox_credential.api_token_secret
   pm_tls_insecure     = var.proxmox_config.tls
 }
+
+provider "vault" {
+  address = var.hashicorp_vault_config.addr
+  token = var.hashicorp_vault_token
+}

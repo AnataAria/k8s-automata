@@ -76,3 +76,7 @@ k8s_config = {
   etcd_version = "3.6"
   etcd_ha      = true
 }
+
+hashicorp_vault_config = {
+  addr = "https://localhost:8200"
+}
