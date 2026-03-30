@@ -1,18 +1,28 @@
 # Managed by Ansible
-ETCD_NAME="{{ etcd_name }}"
-ETCD_DATA_DIR="{{ etcd_data_dir }}"
-ETCD_LISTEN_CLIENT_URLS="https://{{ etcd_ip }}:{{ etcd_client_port }},https://127.0.0.1:{{ etcd_client_port }}"
-ETCD_ADVERTISE_CLIENT_URLS="https://{{ etcd_ip }}:{{ etcd_client_port }}"
-ETCD_LISTEN_PEER_URLS="https://{{ etcd_ip }}:{{ etcd_peer_port }}"
-ETCD_INITIAL_ADVERTISE_PEER_URLS="https://{{ etcd_ip }}:{{ etcd_peer_port }}"
-ETCD_INITIAL_CLUSTER_STATE="{{ etcd_initial_cluster_state }}"
-ETCD_INITIAL_CLUSTER_TOKEN="{{ etcd_cluster_token }}"
-ETCD_INITIAL_CLUSTER="{% for peer in etcd_peers %}{{ peer.name }}=https://{{ peer.ip }}:{{ etcd_peer_port }}{% if not loop.last %},{% endif %}{% endfor %}"
-ETCD_CERT_FILE="{{ etcd_cert_dir }}/server.crt"
-ETCD_KEY_FILE="{{ etcd_cert_dir }}/server.key"
-ETCD_TRUSTED_CA_FILE="{{ etcd_cert_dir }}/ca.crt"
-ETCD_CLIENT_CERT_AUTH="true"
-ETCD_PEER_CERT_FILE="{{ etcd_cert_dir }}/peer.crt"
-ETCD_PEER_KEY_FILE="{{ etcd_cert_dir }}/peer.key"
-ETCD_PEER_TRUSTED_CA_FILE="{{ etcd_cert_dir }}/ca.crt"
-ETCD_PEER_CLIENT_CERT_AUTH="true"
+
+# Member
+name: "{{ etcd_name }}"
+data-dir: "{{ etcd_data_dir }}"
+
+# Networking
+listen-client-urls: "https://{{ etcd_ip }}:{{ etcd_client_port }},https://127.0.0.1:{{ etcd_client_port }}"
+advertise-client-urls: "https://{{ etcd_ip }}:{{ etcd_client_port }}"
+listen-peer-urls: "https://{{ etcd_ip }}:{{ etcd_peer_port }}"
+initial-advertise-peer-urls: "https://{{ etcd_ip }}:{{ etcd_peer_port }}"
+
+# Cluster bootstrap
+initial-cluster-state: "{{ etcd_initial_cluster_state }}"
+initial-cluster-token: "{{ etcd_cluster_token }}"
+initial-cluster: "{% for peer in etcd_peers %}{{ peer.name }}=https://{{ peer.ip }}:{{ etcd_peer_port }}{% if not loop.last %},{% endif %}{% endfor %}"
+
+# Client TLS
+cert-file: "{{ etcd_cert_dir }}/server.crt"
+key-file: "{{ etcd_cert_dir }}/server.key"
+trusted-ca-file: "{{ etcd_cert_dir }}/ca.crt"
+client-cert-auth: true
+
+# Peer TLS
+peer-cert-file: "{{ etcd_cert_dir }}/peer.crt"
+peer-key-file: "{{ etcd_cert_dir }}/peer.key"
+peer-trusted-ca-file: "{{ etcd_cert_dir }}/ca.crt"
+peer-client-cert-auth: true

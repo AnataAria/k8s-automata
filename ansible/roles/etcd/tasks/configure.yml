@@ -2,7 +2,7 @@
 - name: Deploy etcd environment configuration
   ansible.builtin.template:
     src: etcd.conf.j2
-    dest: "{{ etcd_config_dir }}/etcd.conf"
+    dest: "{{ etcd_config_dir }}/etcd.conf.yml"
     owner: root
     group: root
     mode: '0640'
