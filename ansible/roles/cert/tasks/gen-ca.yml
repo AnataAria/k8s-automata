@@ -14,8 +14,9 @@
   community.hashi_vault.vault_read:
     url: "{{ cert_vault_addr }}"
     path: "{{ cert_vault_path }}/etcd-ca"
-    auth_method: token
-    token: "{{ cert_vault_token }}"
+    auth_method: approle
+    role_id: "{{ cert_role_id }}"
+    secret_id: "{{ cert_secret_id }}"
   register: cert_vault_ca_check
   failed_when: false
   delegate_to: localhost
@@ -101,8 +102,9 @@
   community.hashi_vault.vault_write:
     url: "{{ cert_vault_addr }}"
     path: "{{ cert_vault_path }}/{{ item.secret }}"
-    auth_method: token
-    token: "{{ cert_vault_token }}"
+    auth_method: approle
+    role_id: "{{ cert_role_id }}"
+    secret_id: "{{ cert_secret_id }}"
     data:
       crt: "{{ lookup('file', cert_local_artifact_dir + item.crt) }}"
       key: "{{ lookup('file', cert_local_artifact_dir + item.key) }}"

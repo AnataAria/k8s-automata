@@ -1,10 +1,20 @@
 ---
 - name: Generate CA key
   ansible.builtin.import_tasks: gen-ca.yml
+  vars:
+    cert_vault_addr: "{{ vault_addr }}"
+    cert_vault_path: "{{ vault_path }}"
+    cert_role_id: "{{ vault_role_id }}"
+    cert_secret_id: "{{ vault_secret_id }}"
   when: cert_initial_cluster_state == 'new'
 
 - name: Distribute CA to nodes
   ansible.builtin.import_tasks: distribute-ca.yml
+  vars:
+    cert_vault_addr: "{{ vault_addr }}"
+    cert_vault_path: "{{ vault_path }}"
+    cert_role_id: "{{ vault_role_id }}"
+    cert_secret_id: "{{ vault_secret_id }}"
 
 - name: Generate etcd certs
   ansible.builtin.import_tasks: etcd.yml

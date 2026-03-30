@@ -65,6 +65,24 @@ argument_specs:
         type: str
         required: true
         description: "hashicorp vault url"
+      cert_vault_addr:
+        type: str
+        required: false
+        default: "http://localhost:8200"
+        description: "hashicorp vault base url"
+      cert_vault_path:
+        type: str
+        required: false
+        default: "k8s-automata"
+        description: "path of hashicorp key"
+      cert_role_id:
+        type: str
+        required: true
+        description: "role id of hashicorp vault"
+      cert_secret_id:
+        type: str
+        required: false
+        description: "secret id of hashicorp vault"
       cert_initial_cluster_state:
         type: str
         default: "new"
