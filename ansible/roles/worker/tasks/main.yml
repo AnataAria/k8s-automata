@@ -28,9 +28,18 @@
   register: worker_join_result
   changed_when: true
 
+- name: Remove staged worker join script after successful join
+  ansible.builtin.file:
+    path: "{{ worker_join_tempfile }}"
+    state: absent
+  when:
+    - worker_join_result is defined
+    - worker_join_result is succeeded
+
 - name: Apply node labels from inventory
   ansible.builtin.command: >-
-    kubectl --kubeconfig=/etc/kubernetes/admin.conf label node {{ inventory_hostname }}
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf label node
+    {{ inventory_hostname }}
     {% for key, value in node_labels.items() %}{{ key }}={{ value }} {% endfor %}
     --overwrite
   delegate_to: "{{ worker_bootstrap_host }}"

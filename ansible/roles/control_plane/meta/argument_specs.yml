@@ -1,0 +1,32 @@
+---
+argument_specs:
+  main:
+    short_description: This roles is for control plane node configuration
+    description: This roles is for control plane node configuration
+    options:
+      control_plane_hosts:
+        type: list
+        elements: str
+        required: false
+        default: "{{ groups['control_plane'] }}"
+        description: "host list in control plane groups"
+      control_plane_kubeadm_config_path:
+        type: path
+        required: false
+        default: "/etc/kubernetes/kubeadm-init-config.yaml"
+        description: "kubeadm init config location"
+      control_plane_admin_kubeconfig:
+        type: path
+        required: false
+        default: "/etc/kubernetes/admin.conf"
+        description: "kubeadm config location"
+      control_plane_artifact_dir:
+        type: path
+        required: false
+        default: "{{ kubeadm_artifact_dir }}"
+      control_plane_init_mode:
+        type: str
+        required: false
+        default: "new"
+        choices: ["new", "scale"]
+        description: "init mode for control plane, new or scale"

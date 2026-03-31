@@ -5,6 +5,13 @@
     etcd_ip: "{{ etcd_ip | default(ip | default(access_ip | default(ansible_host))) }}"
     etcd_peers: []
 
+- name: Assert etcd IP is resolvable from inventory
+  ansible.builtin.assert:
+    that:
+      - etcd_ip is defined
+      - etcd_ip | length > 0
+    fail_msg: "Unable to derive etcd_ip from etcd_ip, ip, access_ip, or ansible_host for {{ inventory_hostname }}."
+
 - name: Build normalized etcd peer list
   ansible.builtin.set_fact:
     etcd_peers: >-

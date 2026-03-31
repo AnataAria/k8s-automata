@@ -50,8 +50,19 @@
     --ttl {{ worker_join_token_ttl }}
     --print-join-command
   environment:
-    KUBECONFIG: /etc/kubernetes/super-admin.conf
+    KUBECONFIG: "{{ control_plane_admin_kubeconfig }}"
   register: control_plane_worker_join_command
+  changed_when: false
+  when: control_plane_is_bootstrap | bool
+
+- name: Generate control-plane join command on bootstrap node
+  ansible.builtin.command: >-
+    kubeadm token create
+    --ttl {{ control_plane_join_token_ttl | default(worker_join_token_ttl) }}
+    --print-join-command
+  environment:
+    KUBECONFIG: "{{ control_plane_admin_kubeconfig }}"
+  register: control_plane_control_plane_join_command
   changed_when: false
   when: control_plane_is_bootstrap | bool
 
@@ -61,7 +72,7 @@
     --config {{ control_plane_kubeadm_config_path }}
     --skip-token-print
   environment:
-    KUBECONFIG: /etc/kubernetes/super-admin.conf
+    KUBECONFIG: "{{ control_plane_admin_kubeconfig }}"
   changed_when: false
   when: control_plane_is_bootstrap | bool
 
@@ -69,7 +80,7 @@
   ansible.builtin.command: >-
     kubeadm init phase upload-config all
     --config {{ control_plane_kubeadm_config_path }}
-    --kubeconfig /etc/kubernetes/super-admin.conf
+    --kubeconfig {{ control_plane_admin_kubeconfig }}
   changed_when: false
   when: control_plane_is_bootstrap | bool
 
@@ -77,7 +88,7 @@
   ansible.builtin.command: >-
     kubeadm init phase addon kube-proxy
     --config {{ control_plane_kubeadm_config_path }}
-    --kubeconfig /etc/kubernetes/super-admin.conf
+    --kubeconfig {{ control_plane_admin_kubeconfig }}
   changed_when: false
   when: control_plane_is_bootstrap | bool
 
@@ -87,7 +98,7 @@
     mode: "0700"
     content: |
       #!/usr/bin/env bash
-      {{ control_plane_worker_join_command.stdout }} \
+      {{ control_plane_worker_join_command.stdout | trim }} \
         --cri-socket {{ containerd_socket }}
   when: control_plane_is_bootstrap | bool
 
@@ -97,24 +108,21 @@
     mode: "0700"
     content: |
       #!/usr/bin/env bash
-      JOIN_BASE={{ control_plane_worker_join_command.stdout | quote }}
+      JOIN_BASE={{ control_plane_control_plane_join_command.stdout | trim | quote }}
       CRI_SOCKET={{ containerd_socket | quote }}
       ${JOIN_BASE} \
         --control-plane \
         --cri-socket ${CRI_SOCKET}
   when: control_plane_is_bootstrap | bool
 
-- name: Ensure local artifact directories exist on controller
+- name: Ensure local join artifact directory exists on controller
   ansible.builtin.file:
-    path: "{{ item }}"
+    path: "{{ local_artifact_dir }}/join"
     state: directory
     mode: "0700"
   delegate_to: localhost
   become: false
   run_once: true
-  loop:
-    - "{{ local_artifact_dir }}/join"
-    - "{{ local_artifact_dir }}/pki/control-plane"
 
 - name: Fetch durable join scripts to controller
   ansible.builtin.fetch:
@@ -124,20 +132,6 @@
   loop:
     - worker-join.sh
     - control-plane-join.sh
-  when: control_plane_is_bootstrap | bool
-
-- name: Fetch shared control-plane PKI material to controller artifacts
-  ansible.builtin.fetch:
-    src: "/etc/kubernetes/pki/{{ item }}"
-    dest: "{{ local_artifact_dir }}/pki/control-plane/{{ item }}"
-    flat: true
-  loop:
-    - ca.crt
-    - ca.key
-    - sa.pub
-    - sa.key
-    - front-proxy-ca.crt
-    - front-proxy-ca.key
   when: control_plane_is_bootstrap | bool
 
 - name: Check whether node is already joined as control plane
@@ -173,22 +167,6 @@
     - not control_plane_is_bootstrap | bool
     - not control_plane_joined.stat.exists
 
-- name: Copy shared control-plane PKI material to secondary control-plane nodes
-  ansible.builtin.copy:
-    src: "{{ local_artifact_dir }}/pki/control-plane/{{ item }}"
-    dest: "/etc/kubernetes/pki/{{ item }}"
-    mode: "{{ '0600' if item.endswith('.key') else '0644' }}"
-  loop:
-    - ca.crt
-    - ca.key
-    - sa.pub
-    - sa.key
-    - front-proxy-ca.crt
-    - front-proxy-ca.key
-  when:
-    - not control_plane_is_bootstrap | bool
-    - not control_plane_joined.stat.exists
-
 - name: Join secondary control-plane node
   ansible.builtin.command: "{{ control_plane_join_tempfile }}"
   when:
@@ -196,3 +174,12 @@
     - not control_plane_joined.stat.exists
   register: control_plane_join_result
   changed_when: true
+
+- name: Remove staged control-plane join script after successful join
+  ansible.builtin.file:
+    path: "{{ control_plane_join_tempfile }}"
+    state: absent
+  when:
+    - not control_plane_is_bootstrap | bool
+    - control_plane_join_result is defined
+    - control_plane_join_result is succeeded

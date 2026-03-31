@@ -1,23 +1,24 @@
 ---
-- name: Generate CA key
+- name: Prepare or validate CA material in Vault
   ansible.builtin.import_tasks: gen-ca.yml
-  vars:
-    cert_vault_addr: "{{ vault_addr }}"
-    cert_vault_path: "{{ vault_path }}"
-    cert_role_id: "{{ vault_role_id }}"
-    cert_secret_id: "{{ vault_secret_id }}"
-  when: cert_initial_cluster_state == 'new'
+  tags:
+    - cert
+    - cert_ca
 
 - name: Distribute CA to nodes
   ansible.builtin.import_tasks: distribute-ca.yml
-  vars:
-    cert_vault_addr: "{{ vault_addr }}"
-    cert_vault_path: "{{ vault_path }}"
-    cert_role_id: "{{ vault_role_id }}"
-    cert_secret_id: "{{ vault_secret_id }}"
+  tags:
+    - cert
+    - cert_distribute
 
 - name: Generate etcd certs
   ansible.builtin.import_tasks: etcd.yml
+  tags:
+    - cert
+    - cert_etcd
 
 - name: Generate master certs
   ansible.builtin.import_tasks: control_plane.yml
+  tags:
+    - cert
+    - cert_control_plane

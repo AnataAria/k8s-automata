@@ -65,7 +65,7 @@
       - --config
       - "{{ cert_etcd_kubeadm_config_path }}"
   args:
-    creates: "{{ cert_k8s_etcd_pki_dir }}/etcd/server.crt"
+    creates: "{{ cert_k8s_etcd_pki_dir }}/server.crt"
   when: inventory_hostname in cert_etcd_hosts
 
 - name: Generate etcd peer certificate on each etcd node

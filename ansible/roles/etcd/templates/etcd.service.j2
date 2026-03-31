@@ -8,8 +8,7 @@ Wants=network-online.target
 Type=notify
 User=etcd
 Group=etcd
-EnvironmentFile={{ etcd_config_dir }}/etcd.conf.yml
-ExecStart={{ etcd_bin_dir }}/etcd
+ExecStart={{ etcd_bin_dir }}/etcd --config-file {{ etcd_config_dir }}/etcd.conf.yml
 
 Restart=on-failure
 RestartSec=10s

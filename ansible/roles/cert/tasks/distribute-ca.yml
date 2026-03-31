@@ -2,44 +2,56 @@
 - name: Get etcd CA from Vault
   community.hashi_vault.vault_read:
     url: "{{ cert_vault_addr }}"
-    path: "{{ cert_vault_path }}/etcd-ca"
-    auth_method: token
-    token: "{{ cert_vault_token }}"
+    path: "{{ cert_vault_path }}/data/etcd-ca"
+    auth_method: approle
+    role_id: "{{ cert_role_id }}"
+    secret_id: "{{ cert_secret_id }}"
+    validate_certs: false
   register: cert_vault_etcd_ca
   delegate_to: localhost
+  become: false
   run_once: true
   no_log: true
 
 - name: Get k8s CA from Vault
   community.hashi_vault.vault_read:
     url: "{{ cert_vault_addr }}"
-    path: "{{ cert_vault_path }}/k8s-ca"
-    auth_method: token
-    token: "{{ cert_vault_token }}"
+    path: "{{ cert_vault_path }}/data/k8s-ca"
+    auth_method: approle
+    role_id: "{{ cert_role_id }}"
+    secret_id: "{{ cert_secret_id }}"
+    validate_certs: false
   register: cert_vault_k8s_ca
   delegate_to: localhost
+  become: false
   run_once: true
   no_log: true
 
 - name: Get front proxy CA from Vault
   community.hashi_vault.vault_read:
     url: "{{ cert_vault_addr }}"
-    path: "{{ cert_vault_path }}/front-proxy-ca"
-    auth_method: token
-    token: "{{ cert_vault_token }}"
+    path: "{{ cert_vault_path }}/data/front-proxy-ca"
+    auth_method: approle
+    role_id: "{{ cert_role_id }}"
+    secret_id: "{{ cert_secret_id }}"
+    validate_certs: false
   register: cert_vault_front_proxy_ca
   delegate_to: localhost
+  become: false
   run_once: true
   no_log: true
 
 - name: Get SA key pair from Vault
   community.hashi_vault.vault_read:
     url: "{{ cert_vault_addr }}"
-    path: "{{ cert_vault_path }}/sa-keypair"
-    auth_method: token
-    token: "{{ cert_vault_token }}"
+    path: "{{ cert_vault_path }}/data/sa-keypair"
+    auth_method: approle
+    role_id: "{{ cert_role_id }}"
+    secret_id: "{{ cert_secret_id }}"
+    validate_certs: false
   register: cert_vault_sa_keypair
   delegate_to: localhost
+  become: false
   run_once: true
   no_log: true
 
@@ -54,16 +66,30 @@
     - "{{ cert_etcd_cert_dir }}"
   when: inventory_hostname in cert_etcd_hosts
 
+- name: Debug k8s CA vault response
+  ansible.builtin.debug:
+    var: cert_vault_k8s_ca
+  delegate_to: localhost
+  run_once: true
+
 - name: Push etcd CA to etcd node
   ansible.builtin.copy:
     content: "{{ item.content }}"
     dest: "{{ item.dest }}"
     mode: "{{ item.mode }}"
   loop:
-    - { content: "{{ cert_vault_etcd_ca.data.data.crt }}", dest: "{{ cert_k8s_etcd_pki_dir }}/ca.crt", mode: '0644' }
-    - { content: "{{ cert_vault_etcd_ca.data.data.key }}", dest: "{{ cert_k8s_etcd_pki_dir }}/ca.key", mode: '0600' }
-    - { content: "{{ cert_vault_etcd_ca.data.data.crt }}", dest: "{{ cert_etcd_cert_dir }}/ca.crt", mode: '0644' }
-    - { content: "{{ cert_vault_etcd_ca.data.data.key }}", dest: "{{ cert_etcd_cert_dir }}/ca.key", mode: '0600' }
+    - content: "{{ cert_vault_etcd_ca.data['data']['data']['crt'] }}"
+      dest: "{{ cert_k8s_etcd_pki_dir }}/ca.crt"
+      mode: '0644'
+    - content: "{{ cert_vault_etcd_ca.data['data']['data']['key'] }}"
+      dest: "{{ cert_k8s_etcd_pki_dir }}/ca.key"
+      mode: '0600'
+    - content: "{{ cert_vault_etcd_ca.data['data']['data']['crt'] }}"
+      dest: "{{ cert_etcd_cert_dir }}/ca.crt"
+      mode: '0644'
+    - content: "{{ cert_vault_etcd_ca.data['data']['data']['key'] }}"
+      dest: "{{ cert_etcd_cert_dir }}/ca.key"
+      mode: '0600'
   when: inventory_hostname in cert_etcd_hosts
   no_log: true
 
@@ -84,13 +110,29 @@
     dest: "{{ item.dest }}"
     mode: "{{ item.mode }}"
   loop:
-    - { content: "{{ cert_vault_k8s_ca.data.data.crt }}", dest: "{{ cert_k8s_pki_dir }}/ca.crt", mode: '0644' }
-    - { content: "{{ cert_vault_k8s_ca.data.data.key }}", dest: "{{ cert_k8s_pki_dir }}/ca.key", mode: '0600' }
-    - { content: "{{ cert_vault_etcd_ca.data.data.crt }}", dest: "{{ cert_k8s_etcd_pki_dir }}/ca.crt", mode: '0644' }
-    - { content: "{{ cert_vault_etcd_ca.data.data.key }}", dest: "{{ cert_k8s_etcd_pki_dir }}/ca.key", mode: '0600' }
-    - { content: "{{ cert_vault_front_proxy_ca.data.data.crt }}", dest: "{{ cert_k8s_pki_dir }}/front-proxy-ca.crt", mode: '0644' }
-    - { content: "{{ cert_vault_front_proxy_ca.data.data.key }}", dest: "{{ cert_k8s_pki_dir }}/front-proxy-ca.key", mode: '0600' }
-    - { content: "{{ cert_vault_sa_keypair.data.data.crt }}", dest: "{{ cert_k8s_pki_dir }}/sa.pub", mode: '0644' }
-    - { content: "{{ cert_vault_sa_keypair.data.data.key }}", dest: "{{ cert_k8s_pki_dir }}/sa.key", mode: '0600' }
+    - content: "{{ cert_vault_k8s_ca.data['data']['data']['crt'] }}"
+      dest: "{{ cert_k8s_pki_dir }}/ca.crt"
+      mode: '0644'
+    - content: "{{ cert_vault_k8s_ca.data['data']['data']['key'] }}"
+      dest: "{{ cert_k8s_pki_dir }}/ca.key"
+      mode: '0600'
+    - content: "{{ cert_vault_etcd_ca.data['data']['data']['crt'] }}"
+      dest: "{{ cert_k8s_etcd_pki_dir }}/ca.crt"
+      mode: '0644'
+    - content: "{{ cert_vault_etcd_ca.data['data']['data']['key'] }}"
+      dest: "{{ cert_k8s_etcd_pki_dir }}/ca.key"
+      mode: '0600'
+    - content: "{{ cert_vault_front_proxy_ca.data['data']['data']['crt'] }}"
+      dest: "{{ cert_k8s_pki_dir }}/front-proxy-ca.crt"
+      mode: '0644'
+    - content: "{{ cert_vault_front_proxy_ca.data['data']['data']['key'] }}"
+      dest: "{{ cert_k8s_pki_dir }}/front-proxy-ca.key"
+      mode: '0600'
+    - content: "{{ cert_vault_sa_keypair.data['data']['data']['crt'] }}"
+      dest: "{{ cert_k8s_pki_dir }}/sa.pub"
+      mode: '0644'
+    - content: "{{ cert_vault_sa_keypair.data['data']['data']['key'] }}"
+      dest: "{{ cert_k8s_pki_dir }}/sa.key"
+      mode: '0600'
   when: inventory_hostname in cert_control_plane_hosts
   no_log: true

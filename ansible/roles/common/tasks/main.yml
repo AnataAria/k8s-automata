@@ -38,7 +38,7 @@
   ansible.builtin.command: swapoff -a
   when:
     - common_disable_swap | bool
-    - ansible_swaptotal_mb | int > 0
+    - ansible_facts["swaptotal_mb"] | int > 0
   changed_when: false
   tags:
     - swap
@@ -58,7 +58,7 @@
     name: "{{ item }}"
     state: present
   loop: "{{ common_k8s_kernel_modules }}"
-  when: ansible_virtualization_type != 'lxc'
+  when: ansible_facts["virtualization_type"] != 'lxc'
   tags:
     - kernel
     - modules
@@ -73,7 +73,7 @@
     dest: /etc/modules-load.d/k8s.conf
     mode: '0644'
     backup: true
-  when: ansible_virtualization_type != 'lxc'
+  when: ansible_facts["virtualization_type"] != 'lxc'
   tags:
     - kernel
     - modules

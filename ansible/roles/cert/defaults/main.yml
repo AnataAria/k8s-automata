@@ -14,3 +14,5 @@ cert_etcd_local_artifact_dir: "{{ cert_local_artifact_dir }}/etcd"
 # Etcd dir
 cert_etcd_data_dir: "/var/lib/etcd"
 cert_etcd_cert_dir: "/etc/etcd/pki"
+
+cert_vault_path: "k8s-automata"
