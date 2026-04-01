@@ -10,20 +10,31 @@ argument_specs:
         required: false
         default: "{{ groups['control_plane'] }}"
         description: "host list in control plane groups"
+      control_plane_bootstrap_host:
+        type: str
+        required: false
+        default: "{{ groups['control_plane'][0] }}"
+        description: "control plane bootstrap host"
+      control_plane_k8s_base_path:
+        type: path
+        required: false
+        default: "/etc/kubernetes"
+        description: "k8s base path"
       control_plane_kubeadm_config_path:
         type: path
         required: false
-        default: "/etc/kubernetes/kubeadm-init-config.yaml"
+        default: "{{ control_plane_k8s_base_path }}/kubeadm-init-config.yaml"
         description: "kubeadm init config location"
       control_plane_admin_kubeconfig:
         type: path
         required: false
-        default: "/etc/kubernetes/admin.conf"
+        default: "{{ control_plane_k8s_base_path }}/admin.conf"
         description: "kubeadm config location"
       control_plane_artifact_dir:
         type: path
         required: false
         default: "{{ kubeadm_artifact_dir }}"
+        description: "control plane artifact dir"
       control_plane_init_mode:
         type: str
         required: false

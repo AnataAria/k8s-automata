@@ -21,7 +21,11 @@ argument_specs:
         type: path
         required: false
         description: "etcd data dir"
-        default: "/var/lib/etcd"
+      etcd_home_dir:
+        type: path
+        required: false
+        description: "etcd home dir"
+        default: "/home/etcd"
       etcd_cert_dir:
         type: path
         required: false

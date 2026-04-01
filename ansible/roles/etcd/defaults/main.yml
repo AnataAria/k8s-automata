@@ -1,8 +1,9 @@
 ---
-etcd_version: "3.5.9"
+etcd_version: "3.5.28"
 etcd_data_dir: "/var/lib/etcd"
 etcd_cert_dir: "/etc/etcd/pki"
 etcd_config_dir: "/etc/etcd"
+etcd_home_dir: "/home/etcd"
 etcd_bin_dir: "/usr/local/bin"
 etcd_download_dir: "/tmp"
 

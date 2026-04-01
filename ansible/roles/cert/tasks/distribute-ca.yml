@@ -56,6 +56,24 @@
   no_log: true
 
 # ── Etcd nodes ─────────────────────────────────────────────────
+- name: Ensure etcd group exists before CA distribution
+  ansible.builtin.group:
+    name: etcd
+    system: true
+    state: present
+  when: inventory_hostname in cert_etcd_hosts
+
+- name: Ensure etcd user exists before CA distribution
+  ansible.builtin.user:
+    name: etcd
+    group: etcd
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ cert_etcd_home_dir }}"
+    create_home: false
+    state: present
+  when: inventory_hostname in cert_etcd_hosts
+
 - name: Create PKI dirs on etcd node
   ansible.builtin.file:
     path: "{{ item }}"
@@ -66,17 +84,13 @@
     - "{{ cert_etcd_cert_dir }}"
   when: inventory_hostname in cert_etcd_hosts
 
-- name: Debug k8s CA vault response
-  ansible.builtin.debug:
-    var: cert_vault_k8s_ca
-  delegate_to: localhost
-  run_once: true
-
 - name: Push etcd CA to etcd node
   ansible.builtin.copy:
     content: "{{ item.content }}"
     dest: "{{ item.dest }}"
     mode: "{{ item.mode }}"
+    owner: etcd
+    group: etcd
   loop:
     - content: "{{ cert_vault_etcd_ca.data['data']['data']['crt'] }}"
       dest: "{{ cert_k8s_etcd_pki_dir }}/ca.crt"

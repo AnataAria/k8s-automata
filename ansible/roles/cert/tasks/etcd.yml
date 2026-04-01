@@ -12,8 +12,6 @@
     group: etcd
     system: true
     shell: /usr/sbin/nologin
-    home: "{{ cert_etcd_data_dir }}"
-    create_home: true
     state: present
   when: inventory_hostname in cert_etcd_hosts
 

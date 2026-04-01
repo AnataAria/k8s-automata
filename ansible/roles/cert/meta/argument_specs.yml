@@ -16,6 +16,11 @@ argument_specs:
         required: false
         default: "{{ groups['control_plane'] }}"
         description: "host list in control plane groups"
+      cert_api_server_cert_sans:
+        type: list
+        required: false
+        description: "api server cert sans for control plane"
+        default: []
       cert_k8s_etcd_pki_dir:
         type: path
         required: false

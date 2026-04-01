@@ -17,13 +17,17 @@
   vars:
     cert_target_addresses: >-
       {{
-        [
+        cert_api_server_required_sans
+        + [
           inventory_hostname,
           ansible_host,
           (ip | default(access_ip | default(ansible_host))),
           'localhost',
           '127.0.0.1'
-        ] | unique
+        ] + cert_api_server_cert_sans
+        | reject('equalto', '')
+        | unique
+        | list
       }}
   when: inventory_hostname in cert_control_plane_hosts
 

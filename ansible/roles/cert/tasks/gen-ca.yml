@@ -27,13 +27,7 @@
 
 - name: Set mode - bootstrap or scale
   ansible.builtin.set_fact:
-    cert_ca_existed: >-
-      {{
-        cert_vault_ca_check.status is defined and
-        cert_vault_ca_check.status == 200 and
-        cert_vault_ca_check.data is defined and
-        cert_vault_ca_check.data | length > 0
-      }}
+    cert_ca_existed: "{{ cert_vault_ca_check.data is defined }}"
   delegate_to: localhost
   become: false
   run_once: true

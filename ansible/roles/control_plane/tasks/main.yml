@@ -1,8 +1,14 @@
 ---
+- name: Assert that control plain hosts is defined
+  ansible.builtin.assert:
+    that:
+      - control_plane_bootstrap_host is defined
+      - control_plane_hosts | length > 0
+    fail_msg: "No control_plane hosts defined in inventory"
+
 - name: Derive control-plane role state
   ansible.builtin.set_fact:
-    control_plane_bootstrap_host: "{{ groups['control_plane'][0] }}"
-    control_plane_is_bootstrap: "{{ inventory_hostname == groups['control_plane'][0] }}"
+    control_plane_is_bootstrap: "{{ inventory_hostname == control_plane_bootstrap_host }}"
 
 - name: Ensure control-plane artifact directory exists on bootstrap node
   ansible.builtin.file:
@@ -33,7 +39,6 @@
       ansible.builtin.command: >-
         kubeadm init
         --config {{ control_plane_kubeadm_config_path }}
-        {{ control_plane_init_flags }}
       register: control_plane_init_result
       changed_when: true
 
