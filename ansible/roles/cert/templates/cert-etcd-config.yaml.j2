@@ -1,0 +1,13 @@
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+etcd:
+  local:
+    serverCertSANs:
+{% for san in cert_target_addresses %}
+      - "{{ san }}"
+{% endfor %}
+    peerCertSANs:
+{% for san in cert_target_addresses %}
+      - "{{ san }}"
+{% endfor %}

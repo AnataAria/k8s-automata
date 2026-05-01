@@ -52,6 +52,30 @@ variable "worker_count" {
   default     = 2
 }
 
+variable "etcd_count" {
+  description = "Number of etcd nodes"
+  type        = number
+  default     = 3
+}
+
+variable "loadbalancer_count" {
+  description = "Number of loadbalancer nodes"
+  type        = number
+  default     = 1
+}
+
+variable "etcd_instance_type" {
+  description = "Instance type for etcd nodes"
+  type        = string
+  default     = "t3.medium"
+}
+
+variable "loadbalancer_instance_type" {
+  description = "Instance type for loadbalancer nodes"
+  type        = string
+  default     = "t3.small"
+}
+
 variable "disk_size" {
   description = "Root disk size in GB"
   type        = number

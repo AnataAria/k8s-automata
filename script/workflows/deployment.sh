@@ -8,6 +8,8 @@ source "${DEPLOY_SCRIPT_DIR}/../modules/ansible.sh"
 DEPLOYMENT_CONFIG_FILE="config/deployment.yaml"
 DEFAULT_WAIT_TIME=30
 MAX_RETRY_ATTEMPTS=3
+CONTROL_PLANE_BOOTSTRAP_HOST="control_plane[0]"
+DEFAULT_PLAYBOOK="site.yml"
 
 validate_deployment_prerequisites() {
     local platform="$1"
@@ -70,25 +72,34 @@ deploy_infrastructure() {
 
 wait_for_infrastructure() {
     local platform="$1"
-    local timeout="${2:-300}"
+    local timeout="${2:-600}"
     local check_interval="${3:-30}"
 
     step "Waiting for infrastructure to be ready..."
 
     local elapsed=0
     local attempts=0
+    local success_count=0
+    local required_success=3
 
     while [ $elapsed -lt $timeout ]; do
         attempts=$((attempts + 1))
         info "Connectivity check attempt $attempts (${elapsed}/${timeout}s elapsed)"
 
         if validate_inventory "$platform" && ansible_operation "$platform" "ping" >/dev/null 2>&1; then
-            success "Infrastructure is ready for configuration"
-            return 0
+            success_count=$((success_count + 1))
+            if [ $success_count -ge $required_success ]; then
+                success "Infrastructure is ready and stable for configuration"
+                return 0
+            fi
+
+            info "Infrastructure responding, waiting for stability... ($success_count/$required_success)"
+        else
+            success_count=0
+            info "Infrastructure not ready yet, waiting ${check_interval}s..."
         fi
 
-        info "Infrastructure not ready yet, waiting ${check_interval}s..."
-        sleep $check_interval
+        sleep "$check_interval"
         elapsed=$((elapsed + check_interval))
     done
 
@@ -98,9 +109,10 @@ wait_for_infrastructure() {
 
 configure_cluster() {
     local platform="$1"
-    local playbook="${2:-site.yaml}"
+    local playbook="${2:-$DEFAULT_PLAYBOOK}"
     local extra_vars="$3"
     local tags="$4"
+    local limit="$5"
     local retry_count=0
 
     header "CLUSTER CONFIGURATION: $platform"
@@ -108,11 +120,13 @@ configure_cluster() {
     while [ $retry_count -lt $MAX_RETRY_ATTEMPTS ]; do
         if [ $retry_count -gt 0 ]; then
             warn "Retrying cluster configuration (attempt $((retry_count + 1))/$MAX_RETRY_ATTEMPTS)"
-            sleep 10
+            info "Waiting 30 seconds before retrying to allow infrastructure services to settle"
+            sleep 30
         fi
 
         step "Running Ansible playbook: $playbook"
-        if ansible_operation "$platform" "run" "$playbook" "$extra_vars"; then
+
+        if ansible_operation "$platform" "run" "$playbook" "$extra_vars" "$tags" "$limit"; then
             success "Cluster configuration completed successfully"
             footer
             return 0
@@ -137,27 +151,68 @@ verify_deployment() {
         return 1
     fi
 
-    if ! ansible_adhoc "$platform" "shell" "kubectl version --client" "masters[0]" >/dev/null 2>&1; then
-        warn "kubectl not accessible or not installed"
+    if ! ansible_adhoc "$platform" "shell" "kubectl --kubeconfig=/etc/kubernetes/admin.conf version --client" "$CONTROL_PLANE_BOOTSTRAP_HOST" >/dev/null 2>&1; then
+        warn "kubectl is not accessible on the bootstrap control-plane host"
     else
         success "kubectl is accessible"
     fi
 
     info "Gathering cluster information..."
-    ansible_adhoc "$platform" "shell" "kubectl get nodes" "masters[0]" 2>/dev/null | head -10 || true
+    ansible_adhoc "$platform" "shell" "kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes -o wide" "$CONTROL_PLANE_BOOTSTRAP_HOST" 2>/dev/null | head -20 || true
 
     success "Deployment verification completed"
     return 0
 }
 
+wait_for_cluster_nodes_ready() {
+    local platform="$1"
+    local timeout="${2:-600}"
+    local interval="${3:-30}"
+
+    step "Waiting for all cluster nodes to be ready (timeout: ${timeout}s)..."
+
+    local elapsed=0
+    local success_count=0
+    local required_success=3
+
+    while [ $elapsed -lt $timeout ]; do
+        local ready_output
+        ready_output="$(ansible_adhoc "$platform" "shell" "kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes --no-headers 2>/dev/null | awk '
+            / Ready / || / Ready$/ { ready_count++ }
+            END { print ready_count + 0 }
+        '" "$CONTROL_PLANE_BOOTSTRAP_HOST" 2>/dev/null | tail -n 1 | tr -d '[:space:]')"
+
+        if [[ "$ready_output" =~ ^[0-9]+$ ]] && [ "$ready_output" -ge 1 ]; then
+            success_count=$((success_count + 1))
+            if [ $success_count -ge $required_success ]; then
+                success "Cluster nodes are ready and stable"
+                return 0
+            fi
+
+            info "Nodes responding, waiting for stability... ($success_count/$required_success)"
+        else
+            success_count=0
+            info "Nodes not ready yet, waiting ${interval}s... (${elapsed}/${timeout}s elapsed)"
+        fi
+
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
+
+    error "Timeout waiting for cluster nodes to be ready"
+    return 1
+}
+
 full_deployment_workflow() {
     local platform="$1"
     local auto_approve="${2:-false}"
-    local playbook="${3:-site.yaml}"
+    local playbook="${3:-$DEFAULT_PLAYBOOK}"
     local extra_vars="$4"
     local tags="$5"
+    local limit="$6"
 
-    local start_time=$(date +%s)
+    local start_time
+    start_time=$(date +%s)
 
     header "FULL DEPLOYMENT WORKFLOW: $platform"
     info "Started at: $(date)"
@@ -173,21 +228,31 @@ full_deployment_workflow() {
         return 1
     fi
 
-    if ! wait_for_infrastructure "$platform" 300 30; then
+    if ! wait_for_infrastructure "$platform" 600 30; then
         error "Infrastructure readiness check failed"
         return 1
     fi
 
-    if ! configure_cluster "$platform" "$playbook" "$extra_vars" "$tags"; then
+    info "Additional wait for services to stabilize..."
+    sleep 60
+
+    if ! configure_cluster "$platform" "$playbook" "$extra_vars" "$tags" "$limit"; then
         error "Cluster configuration failed"
         return 1
     fi
 
+    info "Performing final cluster health verification..."
     if ! verify_deployment "$platform"; then
         warn "Deployment verification had issues, but deployment may still be functional"
     fi
 
-    local end_time=$(date +%s)
+    info "Waiting for all cluster nodes to be ready..."
+    if ! wait_for_cluster_nodes_ready "$platform"; then
+        warn "Some nodes may not be ready, but deployment completed"
+    fi
+
+    local end_time
+    end_time=$(date +%s)
     local duration=$((end_time - start_time))
 
     separator
@@ -217,7 +282,7 @@ plan_deployment_workflow() {
     fi
 
     step "Checking Ansible playbook syntax..."
-    if ! ansible_operation "$platform" "syntax-check" "site.yaml"; then
+    if ! ansible_operation "$platform" "syntax-check" "$DEFAULT_PLAYBOOK"; then
         warn "Ansible syntax check had issues"
     fi
 
@@ -258,7 +323,7 @@ destroy_deployment_workflow() {
 multi_platform_deployment() {
     local action="$1"
     local auto_approve="${2:-false}"
-    local playbook="${3:-site.yaml}"
+    local playbook="${3:-$DEFAULT_PLAYBOOK}"
     local platforms=("aws" "proxmox")
 
     header "MULTI-PLATFORM DEPLOYMENT"
@@ -267,7 +332,8 @@ multi_platform_deployment() {
     separator
 
     local failed_platforms=()
-    local start_time=$(date +%s)
+    local start_time
+    start_time=$(date +%s)
 
     for platform in "${platforms[@]}"; do
         info "Processing platform: $platform"
@@ -294,26 +360,26 @@ multi_platform_deployment() {
                 ;;
         esac
 
-        if [ ${#failed_platforms[@]} -eq 0 ]; then
-            success "Completed successfully for $platform"
-        else
+        if printf '%s
+' "${failed_platforms[@]}" | grep -qx "$platform"; then
             error "Failed for $platform"
+        else
+            success "Completed successfully for $platform"
         fi
 
         separator
     done
 
-    local end_time=$(date +%s)
+    local end_time
+    end_time=$(date +%s)
     local duration=$((end_time - start_time))
 
-    # Final summary
     if [ ${#failed_platforms[@]} -eq 0 ]; then
         success "Multi-platform deployment completed successfully!"
         success "All platforms processed: ${platforms[*]}"
     else
         error "Multi-platform deployment had failures"
         error "Failed platforms: ${failed_platforms[*]}"
-        error "Successful platforms: $(printf '%s ' "${platforms[@]}" | grep -v "$(printf '%s\|' "${failed_platforms[@]}" | sed 's/|$//')" || echo "none")"
     fi
 
     info "Total duration: $(printf '%02d:%02d:%02d' $((duration/3600)) $((duration%3600/60)) $((duration%60)))"
@@ -328,7 +394,7 @@ get_deployment_status() {
     header "DEPLOYMENT STATUS: $platform"
 
     step "Checking Terraform state..."
-    if terraform_state "$platform" "list" 2>/dev/null | grep -q "resource"; then
+    if terraform_state "$platform" "list" 2>/dev/null | grep -q "."; then
         success "Infrastructure exists in Terraform state"
 
         step "Terraform outputs:"

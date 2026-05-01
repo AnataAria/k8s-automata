@@ -1,0 +1,31 @@
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+clusterName: "{{ cluster_name | default('kubernetes') }}"
+kubernetesVersion: "{{ k8s_version }}"
+controlPlaneEndpoint: "{{ control_plane_endpoint }}"
+networking:
+  podSubnet: "{{ pod_network_cidr }}"
+  serviceSubnet: "{{ service_cidr }}"
+  dnsDomain: "{{ cluster_dns_domain }}"
+{% if external_etcd_enabled | bool %}
+etcd:
+  external:
+    endpoints:
+{% for host in groups['etcd'] %}
+      - "https://{{ hostvars[host].ip | default(hostvars[host].access_ip | default(hostvars[host].ansible_host)) }}:{{ control_plane_etcd_client_port }}"
+{% endfor %}
+    caFile: "{{ control_plane_k8s_base_path }}/pki/etcd/ca.crt"
+    certFile: "{{ control_plane_k8s_base_path }}/pki/apiserver-etcd-client.crt"
+    keyFile: "{{ control_plane_k8s_base_path }}/pki/apiserver-etcd-client.key"
+{% endif %}
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: "{{ control_plane_api_advertise_address }}"
+  bindPort: 6443
+nodeRegistration:
+  criSocket: "{{ containerd_socket }}"
+  kubeletExtraArgs:
+    - name: node-ip
+      value: "{{ control_plane_api_advertise_address }}"

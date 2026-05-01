@@ -1,0 +1,31 @@
+---
+# Host list
+cert_etcd_hosts: "{{ groups['etcd'] }}"
+cert_control_plane_hosts: "{{ groups['control_plane'] }}"
+# Base dir
+cert_k8s_pki_dir: /etc/kubernetes/pki
+cert_k8s_etcd_pki_dir: /etc/kubernetes/pki/etcd
+cert_kubeadm_cert_dir: "{{ cert_k8s_pki_dir }}"
+# Artifact dir
+cert_etcd_kubeadm_config_path: "{{ kubeadm_artifact_dir }}/etcd-cert-kubeadm-config.yaml"
+cert_control_plane_kubeadm_config_path: "{{ kubeadm_artifact_dir }}/plane-cert-kubeadm-config.yaml"
+cert_local_artifact_dir: "{{ local_artifact_dir }}/pki"
+cert_etcd_local_artifact_dir: "{{ cert_local_artifact_dir }}/etcd"
+# Etcd dir
+cert_etcd_data_dir: "/var/lib/etcd"
+cert_etcd_cert_dir: "/etc/etcd/pki"
+cert_etcd_home_dir: "/home/etcd"
+# Control plane
+cert_api_server_required_sans:
+  - "{{ service_cidr | ansible.utils.next_nth_usable(1) }}"
+  - "kubernetes"
+  - "kubernetes.default"
+  - "kubernetes.default.svc"
+  - "kubernetes.default.svc.cluster.local"
+  - "localhost"
+  - "127.0.0.1"
+
+cert_api_server_cert_sans:
+  - "{{ control_plane_endpoint | default('') | regex_replace(':\\d+$', '') }}"
+
+cert_vault_path: "k8s-automata"

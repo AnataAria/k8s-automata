@@ -30,9 +30,6 @@ resource "proxmox_vm_qemu" "k8s_masters" {
       scsi0 {
         disk {
           backup             = true
-          cache              = "none"
-          discard            = true
-          emulatessd         = true
           iothread           = true
           mbps_r_burst       = 0.0
           mbps_r_concurrent  = 0.0
@@ -65,7 +62,7 @@ resource "proxmox_vm_qemu" "k8s_masters" {
     ]
   }
 
-  ipconfig0 = "ip=${var.master_vm_config.ip_base}.${count.index + 10}/24,gw=${var.proxmox_config.gateway}"
+  ipconfig0 = "ip=${var.master_vm_config.ip_base}.${count.index + var.master_vm_config.ip_offset}/24,gw=${var.proxmox_config.gateway}"
 
   ciuser     = var.vm_credential.username
   cipassword = var.vm_credential.password
@@ -77,6 +74,85 @@ resource "proxmox_vm_qemu" "k8s_masters" {
     command = "echo 'Master ${count.index + 1} created, waiting 10 seconds before next...'; sleep 10"
   }
 }
+
+resource "proxmox_vm_qemu" "k8s_etcds" {
+  count            = var.etcd_vm_config.vm_count
+  vmid             = var.etcd_vm_config.id_offset + count.index
+  name             = "${var.cluster_name}-etcd-${count.index + 1}"
+  automatic_reboot = true
+  balloon          = 0
+  bios             = var.etcd_vm_config.bios
+  os_type          = var.etcd_vm_config.os_type
+  qemu_os          = var.etcd_vm_config.qemu_os
+  target_node      = var.proxmox_config.node_name
+  clone            = var.etcd_vm_config.template_name
+  vm_state         = "running"
+  onboot           = true
+  additional_wait  = 30
+
+  agent = 1
+  cpu {
+    cores   = var.etcd_vm_config.cpu_core
+    sockets = var.etcd_vm_config.cpu_socket
+    type    = var.etcd_vm_config.cpu_type
+  }
+
+  serial {
+    id = 0
+  }
+  memory = var.etcd_vm_config.memory
+  scsihw = "virtio-scsi-pci"
+
+  disks {
+    scsi {
+      scsi0 {
+        disk {
+          backup             = true
+          iothread           = true
+          mbps_r_burst       = 0.0
+          mbps_r_concurrent  = 0.0
+          mbps_wr_burst      = 0.0
+          mbps_wr_concurrent = 0.0
+          replicate          = true
+          size               = "${var.etcd_vm_config.disk_size}G"
+          storage            = var.proxmox_config.storage_pool
+        }
+      }
+    }
+    ide {
+      ide1 {
+        cloudinit {
+          storage = var.proxmox_config.storage_pool
+        }
+      }
+    }
+  }
+
+  network {
+    id     = 0
+    model  = "virtio"
+    bridge = var.proxmox_config.network_bridge
+  }
+
+  lifecycle {
+    ignore_changes = [
+      network,
+    ]
+  }
+
+  ipconfig0 = "ip=${var.etcd_vm_config.ip_base}.${count.index + var.etcd_vm_config.ip_offset}/24,gw=${var.proxmox_config.gateway}"
+
+  ciuser     = var.vm_credential.username
+  cipassword = var.vm_credential.password
+  sshkeys    = var.vm_credential.ssh_keys
+
+  tags = "k8s,etcd"
+
+  provisioner "local-exec" {
+    command = "echo 'Etcd ${count.index + 1} created, waiting 5 seconds before next...'; sleep 5"
+  }
+}
+
 
 resource "proxmox_vm_qemu" "k8s_workers" {
   depends_on       = [proxmox_vm_qemu.k8s_masters]
@@ -112,9 +188,6 @@ resource "proxmox_vm_qemu" "k8s_workers" {
       scsi0 {
         disk {
           backup             = true
-          cache              = "none"
-          discard            = true
-          emulatessd         = true
           iothread           = true
           mbps_r_burst       = 0.0
           mbps_r_concurrent  = 0.0
@@ -161,6 +234,8 @@ resource "proxmox_vm_qemu" "k8s_workers" {
 }
 
 resource "proxmox_lxc" "k8s_loadbalancer" {
+  vmid = var.lxc_gateways.id
+
   features {
     nesting = true
   }
@@ -173,7 +248,8 @@ resource "proxmox_lxc" "k8s_loadbalancer" {
   network {
     name     = "eth0"
     bridge   = var.proxmox_config.network_bridge
-    ip       = var.lxc_gateways.ipv4
+    ip       = "${var.lxc_gateways.ipv4}/${var.lxc_gateways.subnet}"
+    gw       = var.proxmox_config.gateway
     ip6      = "auto"
     firewall = true
   }
@@ -193,15 +269,23 @@ resource "proxmox_lxc" "k8s_loadbalancer" {
 }
 
 resource "local_file" "ansible_inventory" {
-  depends_on = [proxmox_vm_qemu.k8s_masters, proxmox_vm_qemu.k8s_workers]
+  depends_on = [proxmox_vm_qemu.k8s_masters, proxmox_vm_qemu.k8s_workers, proxmox_lxc.k8s_loadbalancer, proxmox_vm_qemu.k8s_etcds]
   content = templatefile("${path.module}/inventory.tpl", {
     masters              = proxmox_vm_qemu.k8s_masters
     workers              = proxmox_vm_qemu.k8s_workers
+    etcds                = proxmox_vm_qemu.k8s_etcds
+    loadbalancer         = proxmox_lxc.k8s_loadbalancer
+    loadbalancer_ip      = var.lxc_gateways.ipv4
     master_ip_base       = var.master_vm_config.ip_base
     worker_ip_base       = var.worker_vm_config.ip_base
+    etcd_ip_base         = var.etcd_vm_config.ip_base
     master_ip_offset     = var.master_vm_config.ip_offset
     worker_ip_offset     = var.worker_vm_config.ip_offset
+    etcd_ip_offset       = var.etcd_vm_config.ip_offset
+    vm_username          = var.vm_credential.username
     ssh_private_key_path = var.vm_credential.ssh_private_key_path
+    k8s_config           = var.k8s_config
+    cluster_name         = var.cluster_name
   })
   filename = "${path.root}/../../ansible/inventories/proxmox/hosts.ini"
 }

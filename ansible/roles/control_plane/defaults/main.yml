@@ -1,0 +1,15 @@
+---
+control_plane_hosts: "{{ groups['control_plane'] }}"
+
+control_plane_bootstrap_host: "{{ groups['control_plane'][0] }}"
+control_plane_is_bootstrap: "{{ inventory_hostname == groups['control_plane'][0] }}"
+control_plane_k8s_base_path: "/etc/kubernetes"
+control_plane_kubeadm_config_path: "{{ control_plane_k8s_base_path }}/kubeadm-init-config.yaml"
+control_plane_admin_kubeconfig: "{{ control_plane_k8s_base_path }}/admin.conf"
+control_plane_artifact_dir: "{{ kubeadm_artifact_dir }}"
+control_plane_join_tempfile: /tmp/kubeadm-control-plane-join.sh
+
+control_plane_node_ip: "{{ ip | default(access_ip | default(ansible_host)) }}"
+control_plane_api_advertise_address: "{{ control_plane_node_ip }}"
+
+control_plane_etcd_client_port: "{{ etcd_client_port | default(2379) }}"

@@ -17,3 +17,9 @@ variable "vm_credential" {
   description = "Authentication credentials for VM access including SSH configuration"
   sensitive   = true
 }
+
+variable "hashicorp_vault_token" {
+  type = string
+  sensitive = true
+  description = "Hashicorp token credential for terraform access"
+}

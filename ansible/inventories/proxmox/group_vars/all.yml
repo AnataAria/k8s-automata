@@ -1,0 +1,29 @@
+---
+k8s_version: "1.29.0"
+k8s_minor: "1.29"
+etcd_version: "3.5.9"
+
+control_plane_endpoint: "k8s-api.example.internal:6443"
+pod_network_cidr: "10.244.0.0/16"
+service_cidr: "10.96.0.0/12"
+cluster_dns_domain: "cluster.local"
+
+loadbalancer_enabled: true
+external_etcd_enabled: true
+cni_plugin: calico
+
+container_runtime: containerd
+containerd_socket: "unix:///run/containerd/containerd.sock"
+loadbalancer_backend_port: 6443
+kubeadm_artifact_dir: "/etc/kubernetes/ansible-artifacts"
+local_artifact_dir: "{{ playbook_dir }}/.artifacts"
+
+api_server_cert_sans:
+  - "{{ control_plane_endpoint | regex_replace(':\\d+$', '') }}"
+
+control_plane_join_token_ttl: "24h"
+worker_join_token_ttl: "24h"
+
+calico_version: "v3.27.2"
+calico_manifest_url: "https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/calico.yaml"
+flannel_manifest_url: "https://raw.githubusercontent.com/flannel-io/flannel/v0.24.3/Documentation/kube-flannel.yml"

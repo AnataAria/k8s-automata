@@ -1,0 +1,20 @@
+---
+loadbalancer_haproxy_config_dir: "/etc/haproxy"
+loadbalancer_haproxy_log_dir: "/var/log/haproxy"
+loadbalancer_haproxy_ports:
+  api_port: 6443
+  stats_port: 8404
+loadbalancer_haproxy_global:
+  maxconn: 4096
+  log_level: info
+loadbalancer_haproxy_timeouts:
+  connect: 5s
+  client: 1m
+  server: 1m
+  check: 5s
+loadbalancer_health_checks:
+  interval: 10s
+  fall: 3
+  rise: 2
+loadbalancer_balance_algorithm: roundrobin
+loadbalancer_configure_firewall: false

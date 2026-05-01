@@ -1,0 +1,17 @@
+---
+- name: Flush etcd handlers before service checks
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start etcd
+  ansible.builtin.systemd:
+    name: etcd
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Wait for local etcd client port
+  ansible.builtin.wait_for:
+    host: "{{ etcd_ip }}"
+    port: "{{ etcd_client_port }}"
+    delay: 3
+    timeout: 60

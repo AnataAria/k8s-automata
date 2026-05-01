@@ -1,0 +1,64 @@
+- name: Ensure kubeadm PKI workspace existed on control plane node
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0700"
+  loop:
+    - "{{ kubeadm_artifact_dir }}"
+    - "{{ cert_kubeadm_cert_dir }}"
+    - "{{ cert_k8s_etcd_pki_dir }}"
+  when: inventory_hostname in cert_control_plane_hosts
+
+- name: Render kubeadm config for control plane nodes
+  ansible.builtin.template:
+    src: cert-plane-config.yaml.j2
+    dest: "{{ cert_control_plane_kubeadm_config_path }}"
+    mode: "0600"
+  vars:
+    cert_target_addresses: >-
+      {{
+        cert_api_server_required_sans
+        + [
+          inventory_hostname,
+          ansible_host,
+          (ip | default(access_ip | default(ansible_host))),
+          'localhost',
+          '127.0.0.1'
+        ] + cert_api_server_cert_sans
+        | reject('equalto', '')
+        | unique
+        | list
+      }}
+  when: inventory_hostname in cert_control_plane_hosts
+
+- name: Generate apiserver-etcd-client certificate
+  ansible.builtin.command:
+    argv:
+      - kubeadm
+      - init
+      - phase
+      - certs
+      - apiserver-etcd-client
+      - --config
+      - "{{ cert_control_plane_kubeadm_config_path }}"
+  args:
+    creates: "{{ cert_k8s_pki_dir }}/apiserver-etcd-client.crt"
+  when: inventory_hostname in cert_control_plane_hosts
+
+- name: Generate control plane certificates
+  ansible.builtin.command:
+    argv:
+      - kubeadm
+      - init
+      - phase
+      - certs
+      - "{{ item.phase }}"
+      - --config
+      - "{{ cert_control_plane_kubeadm_config_path }}"
+  args:
+    creates: "{{ cert_k8s_pki_dir }}/{{ item.creates }}"
+  loop:
+    - { phase: apiserver, creates: apiserver.crt }
+    - { phase: apiserver-kubelet-client, creates: apiserver-kubelet-client.crt }
+    - { phase: front-proxy-client, creates: front-proxy-client.crt }
+  when: inventory_hostname in cert_control_plane_hosts

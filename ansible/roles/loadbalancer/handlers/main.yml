@@ -1,0 +1,12 @@
+---
+- name: Reload systemd
+  listen: reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Restart haproxy
+  listen: restart haproxy
+  ansible.builtin.systemd:
+    name: haproxy
+    state: restarted
+    daemon_reload: true

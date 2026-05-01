@@ -1,0 +1,103 @@
+---
+- name: Create tmp pki dirs on controller
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0700'
+  loop:
+    - "{{ cert_local_artifact_dir }}"
+    - "{{ cert_etcd_local_artifact_dir }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Check CA key existed in Hashicorp Vault
+  community.hashi_vault.vault_read:
+    url: "{{ cert_vault_addr }}"
+    path: "{{ cert_vault_path }}/data/etcd-ca"
+    auth_method: approle
+    role_id: "{{ cert_role_id }}"
+    secret_id: "{{ cert_secret_id }}"
+    validate_certs: false
+  register: cert_vault_ca_check
+  failed_when: false
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Set mode - bootstrap or scale
+  ansible.builtin.set_fact:
+    cert_ca_existed: "{{ cert_vault_ca_check.data is defined }}"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Generate etcd CA (bootstrap mode)
+  ansible.builtin.command:
+    argv: [kubeadm, init, phase, certs, etcd-ca, --cert-dir, "{{ cert_local_artifact_dir }}"]
+    creates: "{{ cert_local_artifact_dir }}/etcd/ca.crt"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: not cert_ca_existed
+
+- name: Generate CA control plane
+  ansible.builtin.command:
+    argv: [kubeadm, init, phase, certs, ca, --cert-dir, "{{ cert_local_artifact_dir }}"]
+    creates: "{{ cert_local_artifact_dir }}/ca.crt"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: not cert_ca_existed
+
+- name: Generate front proxy CA
+  ansible.builtin.command:
+    argv: [kubeadm, init, phase, certs, front-proxy-ca, --cert-dir, "{{ cert_local_artifact_dir }}"]
+    creates: "{{ cert_local_artifact_dir }}/front-proxy-ca.crt"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: not cert_ca_existed
+
+- name: Generate SA key pair
+  ansible.builtin.command:
+    argv: [kubeadm, init, phase, certs, sa, --cert-dir, "{{ cert_local_artifact_dir }}"]
+    creates: "{{ cert_local_artifact_dir }}/sa.pub"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  when: not cert_ca_existed
+
+- name: Store all CA keys to Hashi Vault
+  community.hashi_vault.vault_write:
+    url: "{{ cert_vault_addr }}"
+    path: "{{ cert_vault_path }}/data/{{ item.secret }}"
+    auth_method: approle
+    role_id: "{{ cert_role_id }}"
+    secret_id: "{{ cert_secret_id }}"
+    validate_certs: false
+    data:
+      data:                                                  # ← KV v2 wrapper
+        crt: "{{ lookup('file', item.base_dir ~ '/' ~ item.crt) }}"
+        key: "{{ lookup('file', item.base_dir ~ '/' ~ item.key) }}"
+  loop:
+    - {secret: etcd-ca, base_dir: "{{ cert_local_artifact_dir }}", crt: "etcd/ca.crt", key: "etcd/ca.key"}
+    - {secret: k8s-ca, base_dir: "{{ cert_local_artifact_dir }}", crt: "ca.crt", key: "ca.key"}
+    - {secret: front-proxy-ca, base_dir: "{{ cert_local_artifact_dir }}", crt: "front-proxy-ca.crt", key: "front-proxy-ca.key"}
+    - {secret: sa-keypair, base_dir: "{{ cert_local_artifact_dir }}", crt: "sa.pub", key: "sa.key"}
+  delegate_to: localhost
+  become: false
+  run_once: true
+  no_log: true
+  when: not cert_ca_existed
+
+- name: Cleanup temp PKI from controller
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ cert_etcd_local_artifact_dir }}"
+    - "{{ cert_local_artifact_dir }}"
+  delegate_to: localhost
+  become: false
+  run_once: true

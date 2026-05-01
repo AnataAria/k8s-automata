@@ -1,0 +1,53 @@
+---
+- name: Build etcd cluster endpoint string
+  ansible.builtin.set_fact:
+    etcd_cluster_endpoints: >-
+      {% set ns = namespace(items=[]) %}
+      {% for host in groups['etcd'] %}
+      {% set host_ip =
+        hostvars[host].ip
+        | default(
+            hostvars[host].access_ip
+            | default(hostvars[host].ansible_host)
+          )
+      %}
+      {% set _ = ns.items.append('https://' ~ host_ip ~ ':' ~ etcd_client_port) %}
+      {% endfor %}
+      {{ ns.items | join(',') }}
+
+- name: Check local etcd endpoint health
+  ansible.builtin.command:
+    argv:
+      - "{{ etcd_bin_dir }}/etcdctl"
+      - endpoint
+      - health
+      - "--endpoints=https://{{ etcd_ip }}:{{ etcd_client_port }}"
+      - "--cacert={{ etcd_cert_dir }}/ca.crt"
+      - "--cert={{ etcd_cert_dir }}/healthcheck-client.crt"
+      - "--key={{ etcd_cert_dir }}/healthcheck-client.key"
+  environment:
+    ETCDCTL_API: "3"
+  register: etcd_local_health
+  retries: 12
+  delay: 5
+  until: etcd_local_health.rc == 0
+  changed_when: false
+
+- name: Check full etcd cluster health from leader node
+  ansible.builtin.command:
+    argv:
+      - "{{ etcd_bin_dir }}/etcdctl"
+      - endpoint
+      - health
+      - "--endpoints={{ etcd_cluster_endpoints | trim }}"
+      - "--cacert={{ etcd_cert_dir }}/ca.crt"
+      - "--cert={{ etcd_cert_dir }}/healthcheck-client.crt"
+      - "--key={{ etcd_cert_dir }}/healthcheck-client.key"
+  environment:
+    ETCDCTL_API: "3"
+  register: etcd_cluster_health
+  retries: 6
+  delay: 5
+  until: etcd_cluster_health.rc == 0
+  changed_when: false
+  when: inventory_hostname == groups['etcd'][0]

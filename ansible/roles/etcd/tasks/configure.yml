@@ -1,0 +1,18 @@
+---
+- name: Deploy etcd environment configuration
+  ansible.builtin.template:
+    src: etcd.conf.j2
+    dest: "{{ etcd_config_dir }}/etcd.conf.yml"
+    owner: etcd
+    group: etcd
+    mode: '0640'
+  notify: Restart etcd
+
+- name: Deploy etcd systemd unit
+  ansible.builtin.template:
+    src: etcd.service.j2
+    dest: /etc/systemd/system/etcd.service
+    mode: '0644'
+  notify:
+    - Reload systemd
+    - Restart etcd

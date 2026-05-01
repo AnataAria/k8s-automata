@@ -7,6 +7,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
+DEFAULT_PLAYBOOK="site.yml"
 
 log() {
     echo -e "${GREEN}[INFO]${NC} $1"
@@ -56,7 +57,7 @@ terraform_operation() {
 
     log "Running Terraform $action for $platform..."
 
-    cd terraform/$platform
+    cd "terraform/$platform"
 
     if ! ls *.auto.tfvars >/dev/null 2>&1; then
         echo "*.auto.tfvars not found in terraform/$platform/"
@@ -97,7 +98,7 @@ ansible_operation() {
         exit 1
     fi
 
-    ansible-playbook -i ansible/inventories/$platform/hosts.ini ansible/playbooks/site.yaml
+    ansible-playbook -i "ansible/inventories/$platform/hosts.ini" "ansible/${DEFAULT_PLAYBOOK}"
 }
 
 main() {
@@ -115,15 +116,15 @@ main() {
         "aws"|"proxmox")
             case $action in
                 "plan"|"apply"|"destroy")
-                    terraform_operation $platform $action
+                    terraform_operation "$platform" "$action"
                     if [ "$action" = "apply" ]; then
                         log "Infrastructure created. Now running Ansible..."
-                        sleep 30  # Wait for instances to be ready
-                        ansible_operation $platform
+                        sleep 30
+                        ansible_operation "$platform"
                     fi
                     ;;
                 "ansible")
-                    ansible_operation $platform
+                    ansible_operation "$platform"
                     ;;
                 *)
                     error "Unknown action: $action"
@@ -135,20 +136,20 @@ main() {
         "both")
             case $action in
                 "plan")
-                    terraform_operation "aws" $action
-                    terraform_operation "proxmox" $action
+                    terraform_operation "aws" "$action"
+                    terraform_operation "proxmox" "$action"
                     ;;
                 "apply")
-                    terraform_operation "aws" $action
-                    terraform_operation "proxmox" $action
+                    terraform_operation "aws" "$action"
+                    terraform_operation "proxmox" "$action"
                     log "Infrastructure created on both platforms. Now running Ansible..."
                     sleep 30
                     ansible_operation "aws"
                     ansible_operation "proxmox"
                     ;;
                 "destroy")
-                    terraform_operation "aws" $action
-                    terraform_operation "proxmox" $action
+                    terraform_operation "aws" "$action"
+                    terraform_operation "proxmox" "$action"
                     ;;
                 "ansible")
                     ansible_operation "aws"

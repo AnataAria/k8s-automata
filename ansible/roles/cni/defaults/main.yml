@@ -1,0 +1,11 @@
+---
+cni_supported_plugins:
+  - calico
+  - flannel
+cni_apply_kubeconfig: /etc/kubernetes/admin.conf
+cni_manifest_urls:
+  calico: "{{ calico_manifest_url }}"
+  flannel: "{{ flannel_manifest_url }}"
+cni_daemonsets:
+  calico: calico-node
+  flannel: kube-flannel-ds

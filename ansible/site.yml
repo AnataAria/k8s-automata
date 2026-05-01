@@ -1,0 +1,174 @@
+---
+- name: Validate inventory and topology
+  hosts: localhost
+  gather_facts: false
+  vars:
+    required_groups:
+      - bastion
+      - load_balancers
+      - etcd
+      - control_plane
+      - workers
+      - k8s_cluster
+      - cluster_nodes
+      - services
+  tasks:
+    - name: Assert canonical groups are present
+      ansible.builtin.assert:
+        that:
+          - item in groups
+        fail_msg: "Required inventory group '{{ item }}' is missing."
+      loop: "{{ required_groups }}"
+
+    - name: Assert minimum control-plane topology
+      ansible.builtin.assert:
+        that:
+          - groups['control_plane'] | length >= 1
+        fail_msg: "At least one control-plane host is required."
+
+    - name: Assert worker topology
+      ansible.builtin.assert:
+        that:
+          - groups['workers'] | length >= 1
+        fail_msg: "At least one worker host is required for the target topology."
+
+    - name: Assert external etcd topology
+      ansible.builtin.assert:
+        that:
+          - not external_etcd_enabled | bool or groups['etcd'] | length == 3
+        fail_msg: "External etcd mode requires exactly three dedicated etcd hosts in this implementation."
+
+    - name: Assert control plane endpoint is defined
+      ansible.builtin.assert:
+        that:
+          - control_plane_endpoint is defined
+          - control_plane_endpoint | length > 0
+        fail_msg: "control_plane_endpoint must be defined in inventory group vars."
+
+    - name: Assert HA topology has a load balancer when enabled
+      ansible.builtin.assert:
+        that:
+          - >-
+            groups['control_plane'] | length == 1 or not loadbalancer_enabled | bool or groups['load_balancers'] | length >= 1
+        fail_msg: >-
+          When loadbalancer_enabled=true and more than one control-plane host exists, at least one load balancer host is required.
+
+- name: Baseline preparation on cluster nodes
+  hosts: cluster_nodes
+  become: true
+  roles:
+    - role: common
+    - role: containerd
+    - role: k8s
+
+- name: Configure API load balancers
+  hosts: load_balancers
+  become: true
+  roles:
+    - role: loadbalancer
+      when: loadbalancer_enabled | bool
+
+- name: Stage PKI and certificates
+  hosts: etcd:control_plane
+  become: true
+  tags:
+    - cert
+  roles:
+    - role: cert
+      tags:
+        - cert
+      when: external_etcd_enabled | bool
+      vars:
+        cert_vault_addr: "{{ vault_addr }}"
+        cert_vault_path: "{{ vault_path | default('k8s-automata') }}"
+        cert_role_id: "{{ vault_role_id }}"
+        cert_secret_id: "{{ vault_secret_id | default('') }}"
+
+- name: Deploy external etcd
+  hosts: etcd
+  become: true
+  roles:
+    - role: etcd
+      when: external_etcd_enabled | bool
+
+- name: Bootstrap first control-plane node
+  hosts: control_plane[0]
+  become: true
+  serial: 1
+  roles:
+    - role: control_plane
+
+- name: Join remaining control-plane nodes
+  hosts: control_plane[1:]
+  become: true
+  serial: 1
+  roles:
+    - role: control_plane
+
+- name: Join worker nodes
+  hosts: workers
+  become: true
+  roles:
+    - role: worker
+
+- name: Install cluster CNI
+  hosts: control_plane[0]
+  become: true
+  serial: 1
+  roles:
+    - role: cni
+
+- name: Verify cluster health
+  hosts: control_plane[0]
+  become: true
+  gather_facts: false
+  vars:
+    expected_node_count: >-
+      {{ (groups['control_plane'] | length) + (groups['workers'] | length) }}
+    external_etcd_endpoints: >-
+      {% set ns = namespace(items=[]) %} {% set etcd_client_port_value = etcd_client_port | default(2379) %} {% for host in groups['etcd'] %} {% set host_ip =
+        hostvars[host].ip
+        | default(
+            hostvars[host].access_ip
+            | default(hostvars[host].ansible_host)
+          )
+      %} {% set _ = ns.items.append('https://' ~ host_ip ~ ':' ~ etcd_client_port_value) %} {% endfor %} {{ ns.items | join(',') }}
+  tasks:
+    - name: Wait for all nodes to report Ready
+      ansible.builtin.command: >-
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes --no-headers
+      register: cluster_nodes_status
+      retries: 18
+      delay: 10
+      until:
+        - cluster_nodes_status.rc == 0
+        - (cluster_nodes_status.stdout_lines | length) >= expected_node_count
+        - >-
+          (cluster_nodes_status.stdout_lines | select('search', ' Ready') | list | length) >= expected_node_count
+      changed_when: false
+
+    - name: Verify kube-system pods are visible
+      ansible.builtin.command: >-
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf get pods -n kube-system
+      register: kube_system_pods
+      changed_when: false
+
+    - name: Verify external etcd endpoints from primary etcd node
+      ansible.builtin.command:
+        argv:
+          - "{{ hostvars[groups['etcd'][0]].etcd_bin_dir | default(etcd_bin_dir | default('/usr/local/bin')) }}/etcdctl"
+          - endpoint
+          - health
+          - "--endpoints={{ external_etcd_endpoints | trim }}"
+          - "--cacert={{ hostvars[groups['etcd'][0]].etcd_cert_dir | default(etcd_cert_dir | default('/etc/etcd/pki')) }}/ca.crt"
+          - "--cert={{ hostvars[groups['etcd'][0]].etcd_cert_dir | default(etcd_cert_dir | default('/etc/etcd/pki')) }}/healthcheck-client.crt"
+          - "--key={{ hostvars[groups['etcd'][0]].etcd_cert_dir | default(etcd_cert_dir | default('/etc/etcd/pki')) }}/healthcheck-client.key"
+      environment:
+        ETCDCTL_API: "3"
+      changed_when: false
+      delegate_to: "{{ groups['etcd'][0] }}"
+      when: external_etcd_enabled | bool
+
+    - name: Print node status summary
+      ansible.builtin.debug:
+        var: cluster_nodes_status.stdout_lines

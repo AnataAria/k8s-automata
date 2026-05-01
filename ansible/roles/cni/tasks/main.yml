@@ -1,0 +1,25 @@
+---
+- name: Assert selected CNI plugin is supported
+  ansible.builtin.assert:
+    that:
+      - cni_plugin in cni_supported_plugins
+    fail_msg: "Unsupported cni_plugin '{{ cni_plugin }}'. Supported values: {{ cni_supported_plugins | join(', ') }}"
+
+- name: Apply CNI manifest
+  ansible.builtin.command: >-
+    kubectl --kubeconfig={{ cni_apply_kubeconfig }} apply -f {{ cni_manifest_urls[cni_plugin] }}
+  register: cni_apply_result
+  changed_when: >-
+    'created' in cni_apply_result.stdout or
+    'configured' in cni_apply_result.stdout or
+    'created' in cni_apply_result.stderr or
+    'configured' in cni_apply_result.stderr
+
+- name: Wait for CNI daemonset rollout
+  ansible.builtin.command: >-
+    kubectl --kubeconfig={{ cni_apply_kubeconfig }} -n kube-system rollout status daemonset/{{ cni_daemonsets[cni_plugin] }} --timeout=300s
+  register: cni_rollout_result
+  retries: 5
+  delay: 15
+  until: cni_rollout_result.rc == 0
+  changed_when: false

@@ -1,0 +1,44 @@
+---
+- name: Assert control plane backends exist for load balancer
+  ansible.builtin.assert:
+    that:
+      - groups['control_plane'] | length > 0
+    fail_msg: "The loadbalancer role requires at least one control_plane host."
+
+- name: Ensure HAProxy directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - "{{ loadbalancer_haproxy_config_dir }}"
+    - "{{ loadbalancer_haproxy_log_dir }}"
+
+- name: Install HAProxy packages
+  ansible.builtin.apt:
+    name:
+      - haproxy
+      - socat
+    state: present
+    update_cache: true
+
+- name: Render HAProxy configuration
+  ansible.builtin.template:
+    src: haproxy.cfg.j2
+    dest: "{{ loadbalancer_haproxy_config_dir }}/haproxy.cfg"
+    mode: '0644'
+    backup: true
+  notify: Restart haproxy
+
+- name: Validate HAProxy configuration
+  ansible.builtin.command: haproxy -c -f "{{ loadbalancer_haproxy_config_dir }}/haproxy.cfg"
+  changed_when: false
+
+- name: Ensure HAProxy service is enabled and running
+  ansible.builtin.systemd:
+    name: haproxy
+    enabled: true
+    state: started
+    daemon_reload: true

@@ -1,0 +1,18 @@
+---
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+  listen: reload_systemd
+  tags:
+    - handlers
+    - systemd
+
+- name: Restart containerd
+  ansible.builtin.systemd:
+    name: containerd
+    state: restarted
+    daemon_reload: true
+  listen: restart containerd
+  tags:
+    - handlers
+    - containerd
