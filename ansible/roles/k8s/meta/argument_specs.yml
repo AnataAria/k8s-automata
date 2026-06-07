@@ -1,0 +1,26 @@
+---
+argument_specs:
+  main:
+    short_description: This roles is for all k8s cluster configuration install
+    description: This roles is for all k8s cluster configuration install
+    options:
+      k8s_mode:
+        type: str
+        required: false
+        default: add
+        choices:
+          - add
+          - remove
+        description: "k8s config mode"
+      k8s_version:
+        type: str
+        required: false
+        description: "Kubernetes package version, for example 1.32.0"
+      k8s_minor:
+        type: str
+        required: false
+        description: "Kubernetes repository minor version. Derived from k8s_version when omitted."
+      k8s_node_ip:
+        type: str
+        required: false
+        description: "Node IP passed to kubelet."

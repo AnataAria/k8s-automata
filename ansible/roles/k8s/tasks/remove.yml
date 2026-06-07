@@ -1,0 +1,212 @@
+---
+- name: Gather service facts
+  ansible.builtin.service_facts:
+  tags:
+    - always
+    - facts
+    - remove
+
+- name: Gather package facts
+  ansible.builtin.package_facts:
+    manager: auto
+  tags:
+    - always
+    - facts
+    - remove
+
+- name: Check Kubernetes artifacts
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - /etc/apt/sources.list.d/kubernetes.list
+    - "{{ k8s_apt_keyring_path }}"
+    - /etc/default/kubelet
+    - /etc/kubernetes
+    - /var/lib/kubelet
+  register: k8s_artifact_stats
+  changed_when: false
+  tags:
+    - always
+    - facts
+    - remove
+
+- name: Derive Kubernetes service state
+  ansible.builtin.set_fact:
+    k8s_kubelet_service_present: >-
+      {{
+        'kubelet.service' in (ansible_facts.services | default({}))
+        or 'kubelet' in (ansible_facts.services | default({}))
+      }}
+  tags:
+    - always
+    - facts
+    - remove
+
+- name: Derive Kubernetes package state
+  ansible.builtin.set_fact:
+    k8s_kubernetes_packages_present: >-
+      {{
+        k8s_packages
+        | select('in', ansible_facts.packages.keys() | list)
+        | list
+        | length > 0
+      }}
+  tags:
+    - always
+    - facts
+    - remove
+
+- name: Derive Kubernetes artifact state
+  ansible.builtin.set_fact:
+    k8s_kubernetes_artifacts_present: >-
+      {{
+        k8s_artifact_stats.results
+        | selectattr('stat.exists')
+        | list
+        | length > 0
+      }}
+  tags:
+    - always
+    - facts
+    - remove
+
+- name: Derive Kubernetes installation state
+  ansible.builtin.set_fact:
+    k8s_installed: >-
+      {{
+        k8s_installed | default(false) | bool
+        or k8s_kubelet_service_present | bool
+        or k8s_kubernetes_packages_present | bool
+        or k8s_kubernetes_artifacts_present | bool
+      }}
+  tags:
+    - always
+    - facts
+    - remove
+
+- name: Remove containerd runtime and Docker repository
+  tags:
+    - containerd
+    - remove
+  block:
+    - name: Stop and disable containerd service
+      ansible.builtin.systemd:
+        name: containerd
+        state: stopped
+        enabled: false
+        daemon_reload: true
+      when: "'containerd.service' in ansible_facts.services"
+      tags:
+        - service
+
+    - name: Remove containerd.io package
+      ansible.builtin.apt:
+        name: containerd.io
+        state: absent
+        purge: true
+        autoremove: true
+      tags:
+        - package
+
+    - name: Remove Docker GPG keys
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /usr/share/keyrings/docker-archive-keyring.gpg
+        - /etc/apt/keyrings/docker.gpg
+        - /etc/apt/keyrings/docker.asc
+        - /usr/share/keyrings/docker.gpg
+      notify: update apt cache
+      tags:
+        - repo
+
+    - name: Remove Docker repository files
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/sources.list.d/docker.list
+        - /etc/apt/sources.list.d/docker.sources
+        - /etc/apt/sources.list.d/docker-ce.list
+      notify: update apt cache
+      tags:
+        - repo
+
+    - name: Flush apt cache update after Docker repository cleanup
+      ansible.builtin.meta: flush_handlers
+      tags:
+        - repo
+
+    - name: Remove containerd config directory
+      ansible.builtin.file:
+        path: /etc/containerd
+        state: absent
+      when: k8s_containerd_remove_config | default(false) | bool
+      tags:
+        - config
+
+    - name: Remove containerd runtime data
+      ansible.builtin.file:
+        path: /var/lib/containerd
+        state: absent
+      when: k8s_containerd_remove_data | default(false) | bool
+      tags:
+        - data
+
+- name: Remove k8s repositories and keys
+  tags:
+    - k8s
+    - cleanup
+  block:
+    - name: Disable and stop kubelet service
+      ansible.builtin.systemd:
+        name: kubelet
+        enabled: false
+        state: stopped
+        daemon_reload: true
+      when: k8s_kubelet_service_present | bool
+
+    - name: Unhold Kubernetes packages
+      ansible.builtin.dpkg_selections:
+        name: "{{ item }}"
+        selection: install
+      loop: "{{ k8s_packages }}"
+      when:
+        - k8s_installed | bool
+        - item in (ansible_facts.packages.keys() | list)
+
+    - name: Remove Kubernetes packages
+      ansible.builtin.apt:
+        name: "{{ k8s_packages }}"
+        state: absent
+        allow_change_held_packages: true
+      when: k8s_installed | bool
+
+    - name: Remove Kubernetes apt repository
+      ansible.builtin.file:
+        path: /etc/apt/sources.list.d/kubernetes.list
+        state: absent
+      notify: update apt cache
+      when: k8s_installed | bool
+
+    - name: Remove Kubernetes repository keyring
+      ansible.builtin.file:
+        path: "{{ k8s_apt_keyring_path }}"
+        state: absent
+      when: k8s_installed | bool
+
+    - name: Remove Kubernetes configuration
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/default/kubelet
+        - /etc/kubernetes
+      when: k8s_installed | bool
+
+    - name: Remove kubelet data directory
+      ansible.builtin.file:
+        path: /var/lib/kubelet
+        state: absent
+      when: k8s_installed | bool

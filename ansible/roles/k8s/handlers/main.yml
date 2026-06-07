@@ -4,3 +4,27 @@
     name: kubelet
     state: restarted
     daemon_reload: true
+  listen: restart kubelet
+
+- name: Reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+  listen: reload_systemd
+  tags:
+    - handlers
+    - systemd
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+  listen: update apt cache
+
+- name: Restart containerd
+  ansible.builtin.systemd:
+    name: containerd
+    state: restarted
+    daemon_reload: true
+  listen: restart containerd
+  tags:
+    - handlers
+    - containerd

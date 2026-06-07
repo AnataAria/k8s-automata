@@ -1,0 +1,38 @@
+---
+- name: Validate k8s mode
+  ansible.builtin.assert:
+    that:
+      - k8s_mode in ['add', 'remove']
+    fail_msg: "k8s_mode must be either 'add' or 'remove'."
+    success_msg: "k8s_mode is valid."
+  tags:
+    - always
+    - validate
+
+- name: Derive Kubernetes minor version
+  ansible.builtin.set_fact:
+    k8s_minor: "{{ (k8s_version | string).split('.')[0:2] | join('.') }}"
+  when:
+    - k8s_version is defined
+    - k8s_minor is not defined or k8s_minor | string | length == 0
+  tags:
+    - always
+    - validate
+
+- name: Validate Kubernetes package inputs
+  ansible.builtin.assert:
+    that:
+      - k8s_version is defined
+      - k8s_version | string is match('^[0-9]+\\.[0-9]+\\.[0-9]+$')
+      - k8s_minor is defined
+      - k8s_minor | string is match('^[0-9]+\\.[0-9]+$')
+      - k8s_node_ip is defined
+      - k8s_node_ip | string | length > 0
+    fail_msg: >-
+      k8s_version, k8s_minor, and k8s_node_ip must be defined for k8s_mode=add.
+      k8s_minor can be omitted when k8s_version is set as MAJOR.MINOR.PATCH.
+    success_msg: "Kubernetes package inputs are valid."
+  when: k8s_mode == 'add'
+  tags:
+    - always
+    - validate

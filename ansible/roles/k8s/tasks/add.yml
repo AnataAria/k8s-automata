@@ -1,0 +1,299 @@
+---
+- name: Install containerd
+  tags:
+    - containerd
+    - install
+  block:
+    - name: Install packages required for Docker apt repository
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+        state: present
+        update_cache: true
+      tags:
+        - containerd
+        - repo
+        - install
+
+    - name: Create docker apt keyring directories
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      tags:
+        - containerd
+        - repo
+
+    - name: Download Docker apt repository key
+      ansible.builtin.get_url:
+        url: "https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg"
+        dest: /etc/apt/keyrings/docker.asc
+        mode: "0644"
+        owner: root
+        group: root
+      tags:
+        - containerd
+        - repo
+
+    - name: Add Docker apt repository
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/docker.list
+        mode: "0644"
+        owner: root
+        group: root
+        content: >-
+          deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else
+          ansible_architecture }} signed-by=/etc/apt/keyrings/docker.asc]
+          https://download.docker.com/linux/{{ ansible_distribution | lower }}
+          {{ ansible_distribution_release }} stable
+      tags:
+        - containerd
+        - repo
+
+    - name: Install containerd.io from Docker repository
+      ansible.builtin.apt:
+        name: "{{ k8s_containerd_package | default('containerd.io') }}"
+        state: present
+        update_cache: true
+      tags:
+        - containerd
+        - install
+
+    - name: Ensure containerd config directory exists
+      ansible.builtin.file:
+        path: /etc/containerd
+        state: directory
+        mode: "0755"
+        owner: root
+        group: root
+      tags:
+        - containerd
+        - directories
+
+    - name: Reload systemd daemon after package installation
+      ansible.builtin.systemd:
+        daemon_reload: true
+      tags:
+        - containerd
+        - install
+
+    - name: Check containerd config file
+      ansible.builtin.stat:
+        path: /etc/containerd/config.toml
+      register: k8s_containerd_config_stat
+      changed_when: false
+      tags:
+        - containerd
+        - config
+        - verify
+
+
+    - name: Generate default containerd configuration content
+      ansible.builtin.command:
+        cmd: containerd config default
+      register: k8s_containerd_default_config
+      changed_when: false
+      when: not k8s_containerd_config_stat.stat.exists
+      tags:
+        - containerd
+        - config
+
+    - name: Write default containerd configuration
+      ansible.builtin.copy:
+        dest: /etc/containerd/config.toml
+        content: "{{ k8s_containerd_default_config.stdout }}\n"
+        mode: "0644"
+        owner: root
+        group: root
+      when: not k8s_containerd_config_stat.stat.exists
+      notify: restart containerd
+      tags:
+        - containerd
+        - config
+
+    - name: Configure systemd cgroup driver for containerd
+      ansible.builtin.lineinfile:
+        path: /etc/containerd/config.toml
+        regexp: '^(\s*)SystemdCgroup\s*=\s*false'
+        line: '\1SystemdCgroup = true'
+        backrefs: true
+      notify: restart containerd
+      when: k8s_containerd_systemd_cgroup | default(true) | bool
+      tags:
+        - containerd
+        - config
+
+    - name: Enable and start containerd service
+      ansible.builtin.systemd:
+        name: containerd
+        enabled: true
+        state: started
+        daemon_reload: true
+      tags:
+        - containerd
+        - service
+
+    - name: Flush containerd restart before continuing
+      ansible.builtin.meta: flush_handlers
+      tags:
+        - containerd
+        - service
+        - config
+
+    - name: Wait for containerd socket
+      ansible.builtin.wait_for:
+        path: /run/containerd/containerd.sock
+        timeout: "{{ k8s_containerd_wait_timeout | default(120) }}"
+      changed_when: false
+      tags:
+        - containerd
+        - verify
+
+- name: Install Kubernetes package
+  tags:
+    - kubernetes
+    - install
+  block:
+    - name: Install Kubernetes prerequisite packages
+      ansible.builtin.apt:
+        name: "{{ k8s_prerequisite_packages }}"
+        state: present
+        update_cache: true
+      tags:
+        - kubernetes
+        - repo
+        - install
+
+    - name: Ensure apt keyring directory exists
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      tags:
+        - kubernetes
+        - repo
+
+    - name: Check Kubernetes apt keyring
+      ansible.builtin.stat:
+        path: "{{ k8s_apt_keyring_path }}"
+      register: k8s_apt_keyring_stat
+      changed_when: false
+      tags:
+        - kubernetes
+        - repo
+        - verify
+
+    - name: Download Kubernetes repository signing key
+      ansible.builtin.get_url:
+        url: "https://pkgs.k8s.io/core:/stable:/v{{ k8s_minor }}/deb/Release.key"
+        dest: /tmp/kubernetes-release.key
+        owner: root
+        group: root
+        mode: "0644"
+      register: k8s_release_key
+      when: not k8s_apt_keyring_stat.stat.exists
+      tags:
+        - kubernetes
+        - repo
+
+    - name: Convert Kubernetes repository key to apt keyring
+      ansible.builtin.command:
+        cmd: "gpg --dearmor --yes --output {{ k8s_apt_keyring_path }} /tmp/kubernetes-release.key"
+        creates: "{{ k8s_apt_keyring_path }}"
+      notify: update apt cache
+      when: not k8s_apt_keyring_stat.stat.exists
+      tags:
+        - kubernetes
+        - repo
+
+    - name: Remove temporary Kubernetes repository key
+      ansible.builtin.file:
+        path: /tmp/kubernetes-release.key
+        state: absent
+      tags:
+        - kubernetes
+        - repo
+
+    - name: Configure Kubernetes apt repository
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/kubernetes.list
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          {{ k8s_apt_repo }}
+      notify: update apt cache
+      tags:
+        - kubernetes
+        - repo
+
+    - name: Flush apt cache update before installing Kubernetes packages
+      ansible.builtin.meta: flush_handlers
+      tags:
+        - kubernetes
+        - repo
+
+    - name: Install kubeadm, kubelet, and kubectl packages
+      ansible.builtin.apt:
+        name: "{{ k8s_packages | map('regex_replace', '$', '=' + k8s_version + '-1.1') | list }}"
+        state: present
+        allow_downgrade: true
+        allow_change_held_packages: true
+      tags:
+        - kubernetes
+        - install
+
+    - name: Hold kubeadm, kubelet, and kubectl packages
+      ansible.builtin.dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop: "{{ k8s_packages }}"
+      tags:
+        - kubernetes
+        - install
+        - hold
+
+    - name: Configure kubelet node IP
+      ansible.builtin.copy:
+        dest: /etc/default/kubelet
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          KUBELET_EXTRA_ARGS=--node-ip={{ k8s_node_ip }}
+      notify: restart kubelet
+      tags:
+        - kubernetes
+        - kubelet
+        - config
+
+    - name: Ensure Kubernetes directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      loop:
+        - /etc/kubernetes
+        - /etc/kubernetes/manifests
+        - /var/lib/kubelet
+      tags:
+        - kubernetes
+        - directories
+
+    - name: Enable and start kubelet service
+      ansible.builtin.systemd:
+        name: kubelet
+        enabled: true
+        state: started
+        daemon_reload: true
+      tags:
+        - kubernetes
+        - kubelet
+        - service

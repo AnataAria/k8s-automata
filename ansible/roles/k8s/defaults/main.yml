@@ -1,4 +1,5 @@
 ---
+k8s_mode: add
 k8s_apt_keyring_path: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 k8s_apt_repo: "deb [signed-by={{ k8s_apt_keyring_path }}] https://pkgs.k8s.io/core:/stable:/v{{ k8s_minor }}/deb/ /"
 k8s_packages:
