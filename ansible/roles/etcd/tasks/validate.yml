@@ -1,0 +1,31 @@
+---
+- name: Ensure etcd_mode is supported
+  ansible.builtin.assert:
+    that:
+      - etcd_mode in ["init", "add", "drop", "health"]
+    fail_msg: "etcd_mode must be one of: init, add, drop, health"
+- name: Ensure etcd hosts is set
+  ansible.builtin.assert:
+    that:
+      - groups.get("etcd", []) | length > 0
+    fail_msg: "etcd_mode is required at least one host in [etcd]"
+
+- name: Ensure add mode target is set
+  ansible.builtin.assert:
+    that:
+      - etcd_add_node is defined
+      - etcd_add_node | length > 0
+      - etcd_add_node in groups['etcd']
+      - groups['etcd'] | difference([etcd_add_node]) | length > 0
+    fail_msg: "etcd_add_node must name one host in [etcd], and at least one existing etcd host must remain as executor."
+  when: etcd_mode == "add"
+
+- name: Ensure drop mode target is set
+  ansible.builtin.assert:
+    that:
+      - etcd_remove_node is defined
+      - etcd_remove_node | length > 0
+      - etcd_remove_node in groups['etcd']
+      - groups['etcd'] | difference([etcd_remove_node]) | length > 0
+    fail_msg: "etcd_remove_node must name one host in [etcd], and at least one existing etcd host must remain as executor."
+  when: etcd_mode == "drop"

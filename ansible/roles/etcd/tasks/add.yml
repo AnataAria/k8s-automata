@@ -1,0 +1,81 @@
+---
+- name: Init derive
+  ansible.builtin.include_tasks: derive.yml
+
+- name: Select executor node from existing members
+  ansible.builtin.set_fact:
+    etcd_executor_node: "{{ (groups['etcd'] | difference([etcd_add_node])) | first }}"
+  run_once: true
+
+- name: Derive executor endpoint
+  ansible.builtin.set_fact:
+    etcd_executor_ip: >-
+      {{
+        hostvars[etcd_executor_node].etcd_ip
+        | default(hostvars[etcd_executor_node].ip
+          | default(hostvars[etcd_executor_node].access_ip
+            | default(hostvars[etcd_executor_node].ansible_host)))
+      }}
+  run_once: true
+
+- name: List existing etcd members
+  ansible.builtin.command:
+    argv:
+      - "{{ etcd_bin_dir }}/etcdctl"
+      - member
+      - list
+      - "--endpoints=https://{{ etcd_executor_ip }}:{{ etcd_client_port }}"
+      - "--cacert={{ etcd_cert_dir }}/ca.crt"
+      - "--cert={{ etcd_cert_dir }}/healthcheck-client.crt"
+      - "--key={{ etcd_cert_dir }}/healthcheck-client.key"
+  environment:
+    ETCDCTL_API: "3"
+  register: etcd_member_list
+  changed_when: false
+  delegate_to: "{{ etcd_executor_node }}"
+  run_once: true
+
+- name: Add member to etcd cluster
+  ansible.builtin.command:
+    argv:
+      - "{{ etcd_bin_dir }}/etcdctl"
+      - member
+      - add
+      - "{{ etcd_add_node }}"
+      - >-
+        --peer-urls=https://{{
+          hostvars[etcd_add_node].ip
+          | default(hostvars[etcd_add_node].access_ip
+            | default(hostvars[etcd_add_node].ansible_host))
+        }}:{{ etcd_peer_port }}
+      - "--endpoints=https://{{ etcd_executor_ip }}:{{ etcd_client_port }}"
+      - "--cacert={{ etcd_cert_dir }}/ca.crt"
+      - "--cert={{ etcd_cert_dir }}/healthcheck-client.crt"
+      - "--key={{ etcd_cert_dir }}/healthcheck-client.key"
+  environment:
+    ETCDCTL_API: "3"
+  changed_when: true
+  delegate_to: "{{ etcd_executor_node }}"
+  run_once: true
+  when: etcd_member_list.stdout_lines | select('search', etcd_add_node) | list | length == 0
+
+- name: Init user group etcd
+  ansible.builtin.include_tasks: usergroup.yml
+  when: inventory_hostname == etcd_add_node
+
+- name: Install etcd binaries
+  ansible.builtin.include_tasks: install.yml
+  when: inventory_hostname == etcd_add_node
+
+- name: Set existing cluster state for added node
+  ansible.builtin.set_fact:
+    etcd_initial_cluster_state: "{{ etcd_existing_cluster_state }}"
+  when: inventory_hostname == etcd_add_node
+
+- name: Install etcd config
+  ansible.builtin.include_tasks: configure.yml
+  when: inventory_hostname == etcd_add_node
+
+- name: Start added etcd service
+  ansible.builtin.include_tasks: service.yml
+  when: inventory_hostname == etcd_add_node

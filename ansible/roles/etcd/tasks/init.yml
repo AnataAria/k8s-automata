@@ -1,0 +1,16 @@
+---
+
+- name: Init derive
+  ansible.builtin.include_tasks: derive.yml
+
+- name: Init user group etcd
+  ansible.builtin.include_tasks: usergroup.yml
+
+- name: Install etcd binaries
+  ansible.builtin.include_tasks: install.yml
+
+- name: Config etcd
+  ansible.builtin.include_tasks: configure.yml
+
+- name: Start etcd service
+  ansible.builtin.include_tasks: service.yml

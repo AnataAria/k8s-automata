@@ -1,9 +1,20 @@
 ---
+- name: Init derive
+  ansible.builtin.include_tasks: derive.yml
+
+- name: Select hosts for etcd health checks
+  ansible.builtin.set_fact:
+    etcd_health_hosts: >-
+      {{
+        groups['etcd']
+        | difference((etcd_mode == 'drop') | ternary([etcd_remove_node], []))
+      }}
+
 - name: Build etcd cluster endpoint string
   ansible.builtin.set_fact:
     etcd_cluster_endpoints: >-
       {% set ns = namespace(items=[]) %}
-      {% for host in groups['etcd'] %}
+      {% for host in etcd_health_hosts %}
       {% set host_ip =
         hostvars[host].ip
         | default(
@@ -32,6 +43,7 @@
   delay: 5
   until: etcd_local_health.rc == 0
   changed_when: false
+  when: inventory_hostname in etcd_health_hosts
 
 - name: Check full etcd cluster health from leader node
   ansible.builtin.command:
@@ -50,4 +62,4 @@
   delay: 5
   until: etcd_cluster_health.rc == 0
   changed_when: false
-  when: inventory_hostname == groups['etcd'][0]
+  when: inventory_hostname == etcd_health_hosts | first

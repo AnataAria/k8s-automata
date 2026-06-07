@@ -1,15 +1,18 @@
 ---
-- name: Prepare run
-  ansible.builtin.import_tasks: common.yml
+- name: Validate input
+  ansible.builtin.import_tasks: validate.yml
 
-- name: Install etcd binaries
-  ansible.builtin.import_tasks: install.yml
+- name: Init etcd cluster
+  ansible.builtin.import_tasks: init.yml
+  when: etcd_mode == "init"
 
-- name: Configure etcd
-  ansible.builtin.import_tasks: configure.yml
+- name: Add etcd node to cluster
+  ansible.builtin.import_tasks: add.yml
+  when: etcd_mode == "add"
 
-- name: Start etcd service
-  ansible.builtin.import_tasks: service.yml
+- name: Drop etcd node to cluster
+  ansible.builtin.import_tasks: remove.yml
+  when: etcd_mode == "drop"
 
 - name: Verify etcd cluster health
-  ansible.builtin.import_tasks: verify.yml
+  ansible.builtin.import_tasks: health.yml

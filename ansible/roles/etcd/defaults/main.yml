@@ -1,5 +1,7 @@
 ---
 etcd_version: "3.5.28"
+etcd_system_username: etcd
+etcd_system_group: etcd
 etcd_data_dir: "/var/lib/etcd"
 etcd_cert_dir: "/etc/etcd/pki"
 etcd_config_dir: "/etc/etcd"
@@ -11,3 +13,4 @@ etcd_client_port: 2379
 etcd_peer_port: 2380
 etcd_cluster_token: "etcd-cluster-k8s"
 etcd_initial_cluster_state: "new"
+etcd_existing_cluster_state: "existing"

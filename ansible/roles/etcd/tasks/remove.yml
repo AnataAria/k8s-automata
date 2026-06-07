@@ -1,0 +1,116 @@
+---
+- name: Validate removal parameters
+  ansible.builtin.assert:
+    that:
+      - etcd_remove_node is defined
+      - etcd_remove_node | length > 0
+    fail_msg: "etcd_remove_node must be specified."
+
+- name: Prevent removal of only node
+  ansible.builtin.assert:
+    that:
+      - groups['etcd'] | length > 1
+    fail_msg: "Cannot remove the last etcd node from cluster."
+
+- name: Init derive
+  ansible.builtin.include_tasks: derive.yml
+
+- name: Select executor node from remaining members
+  ansible.builtin.set_fact:
+    etcd_executor_node: "{{ (groups['etcd'] | difference([etcd_remove_node])) | first }}"
+  run_once: true
+
+- name: Derive executor endpoint
+  ansible.builtin.set_fact:
+    etcd_executor_ip: >-
+      {{
+        hostvars[etcd_executor_node].etcd_ip
+        | default(hostvars[etcd_executor_node].ip
+          | default(hostvars[etcd_executor_node].access_ip
+            | default(hostvars[etcd_executor_node].ansible_host)))
+      }}
+  run_once: true
+
+- name: Get member ID of node to remove
+  ansible.builtin.command:
+    cmd: >
+      {{ etcd_bin_dir }}/etcdctl member list
+      --endpoints=https://{{ etcd_executor_ip }}:{{ etcd_client_port }}
+      --cacert={{ etcd_cert_dir }}/ca.crt
+      --cert={{ etcd_cert_dir }}/healthcheck-client.crt
+      --key={{ etcd_cert_dir }}/healthcheck-client.key
+  environment:
+    ETCDCTL_API: "3"
+  register: etcd_member_list
+  changed_when: false
+  delegate_to: "{{ etcd_executor_node }}"
+  run_once: true
+
+- name: Extract member ID
+  ansible.builtin.set_fact:
+    etcd_member_id: >-
+      {{
+        (etcd_member_list.stdout_lines
+          | select('search', etcd_remove_node)
+          | first
+          | default('')
+          | regex_search('^([a-f0-9]+),', '\1')
+          | default([''])
+          | first)
+      }}
+  run_once: true
+
+- name: Verify member found
+  ansible.builtin.assert:
+    that:
+      - etcd_member_id is defined
+      - etcd_member_id | length > 0
+    fail_msg: "Member {{ etcd_remove_node }} not found in cluster."
+  run_once: true
+
+- name: Remove member from cluster
+  ansible.builtin.command:
+    cmd: >
+      {{ etcd_bin_dir }}/etcdctl member remove {{ etcd_member_id }}
+      --endpoints=https://{{ etcd_executor_ip }}:{{ etcd_client_port }}
+      --cacert={{ etcd_cert_dir }}/ca.crt
+      --cert={{ etcd_cert_dir }}/healthcheck-client.crt
+      --key={{ etcd_cert_dir }}/healthcheck-client.key
+  environment:
+    ETCDCTL_API: "3"
+  changed_when: true
+  delegate_to: "{{ etcd_executor_node }}"
+  run_once: true
+
+- name: Stop etcd service
+  ansible.builtin.systemd:
+    name: etcd
+    state: stopped
+    daemon_reload: true
+  delegate_to: "{{ etcd_remove_node }}"
+  run_once: true
+
+- name: Clean up data directory
+  ansible.builtin.file:
+    path: "{{ etcd_data_dir }}"
+    state: absent
+  delegate_to: "{{ etcd_remove_node }}"
+  run_once: true
+
+- name: Verify cluster health
+  ansible.builtin.command:
+    cmd: >
+      {{ etcd_bin_dir }}/etcdctl endpoint health
+      --endpoints=https://{{ etcd_executor_ip }}:{{ etcd_client_port }}
+      --cacert={{ etcd_cert_dir }}/ca.crt
+      --cert={{ etcd_cert_dir }}/healthcheck-client.crt
+      --key={{ etcd_cert_dir }}/healthcheck-client.key
+  environment:
+    ETCDCTL_API: "3"
+  register: etcd_health_check
+  retries: 6
+  delay: 5
+  until: etcd_health_check.rc == 0
+  changed_when: false
+  delegate_to: "{{ etcd_executor_node }}"
+  run_once: true

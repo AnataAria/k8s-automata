@@ -60,7 +60,14 @@ argument_specs:
         type: str
         required: false
         default: "new"
-        description: "etcd init cluster of scale mode"
+        description: "etcd initial cluster state"
         choices:
           - "new"
-          - "scale"
+          - "existing"
+      etcd_existing_cluster_state:
+        type: str
+        required: false
+        default: "existing"
+        description: "etcd initial cluster state used when adding a member"
+        choices:
+          - "existing"
