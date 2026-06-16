@@ -235,9 +235,13 @@ variable "k8s_config" {
 variable "hashicorp_vault_config" {
   type = object({
     addr = string
+    policy_name = string
+    kv_mount = string
   })
   description = "Hashicorp vault config"
   default = {
     addr = "https://localhost:8200"
+    policy_name = "k8s-automata-ansible"
+    kv_mount = "k8s-automata"
   }
 }

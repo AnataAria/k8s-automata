@@ -16,6 +16,7 @@ provider "proxmox" {
 }
 
 provider "vault" {
-  address = var.hashicorp_vault_config.addr
-  token = var.hashicorp_vault_token
+  address         = var.hashicorp_vault_config.addr
+  token           = var.hashicorp_vault_token
+  skip_tls_verify = true
 }

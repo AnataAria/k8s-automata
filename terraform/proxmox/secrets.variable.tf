@@ -19,7 +19,7 @@ variable "vm_credential" {
 }
 
 variable "hashicorp_vault_token" {
-  type = string
-  sensitive = true
+  type        = string
+  sensitive   = true
   description = "Hashicorp token credential for terraform access"
 }
