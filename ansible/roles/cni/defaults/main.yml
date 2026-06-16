@@ -9,3 +9,8 @@ cni_manifest_urls:
 cni_daemonsets:
   calico: calico-node
   flannel: kube-flannel-ds
+cni_api_wait_retries: 30
+cni_api_wait_delay: 10
+cni_rollout_timeout: 300s
+cni_rollout_retries: 10
+cni_rollout_delay: 15

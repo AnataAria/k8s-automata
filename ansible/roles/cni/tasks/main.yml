@@ -15,11 +15,33 @@
     'created' in cni_apply_result.stderr or
     'configured' in cni_apply_result.stderr
 
+- name: Wait for Kubernetes API readiness before CNI rollout
+  ansible.builtin.command: >-
+    kubectl --kubeconfig={{ cni_apply_kubeconfig }} get --raw=/readyz
+  register: cni_api_ready_result
+  retries: "{{ cni_api_wait_retries | int }}"
+  delay: "{{ cni_api_wait_delay | int }}"
+  until:
+    - cni_api_ready_result.rc == 0
+    - "'ok' in (cni_api_ready_result.stdout | lower)"
+  changed_when: false
+  failed_when: false
+
+- name: Assert Kubernetes API became ready for CNI rollout
+  ansible.builtin.assert:
+    that:
+      - cni_api_ready_result.rc == 0
+      - "'ok' in (cni_api_ready_result.stdout | lower)"
+    fail_msg: >-
+      Kubernetes API server was not ready before CNI rollout.
+      Last stderr: {{ cni_api_ready_result.stderr | default('') }}
+
 - name: Wait for CNI daemonset rollout
   ansible.builtin.command: >-
-    kubectl --kubeconfig={{ cni_apply_kubeconfig }} -n kube-system rollout status daemonset/{{ cni_daemonsets[cni_plugin] }} --timeout=300s
+    kubectl --kubeconfig={{ cni_apply_kubeconfig }} -n kube-system rollout status daemonset/{{ cni_daemonsets[cni_plugin] }} --timeout={{ cni_rollout_timeout }}
   register: cni_rollout_result
-  retries: 5
-  delay: 15
+  retries: "{{ cni_rollout_retries | int }}"
+  delay: "{{ cni_rollout_delay | int }}"
   until: cni_rollout_result.rc == 0
   changed_when: false
+  failed_when: false
