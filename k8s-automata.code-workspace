@@ -1,0 +1,49 @@
+{
+    "folders": [
+        {
+            "path": "ansible"
+        },
+        {
+            "path": "script"
+        },
+        {
+            "path": "terraform"
+        },
+        {
+            "path": "docs"
+        },
+        {
+            "path": "app"
+        },
+        {
+            "path": "helm"
+        }
+    ],
+    "settings": {
+        "ansible.ansible.path": "ansible",
+        "ansible.validation.enabled": true,
+        "ansible.validation.lint.enabled": true,
+        "ansible.completion.provideRedirectModules": true,
+        "ansible.completion.provideModuleOptionAliases": true,
+        "files.associations": {
+            "ansible/tasks/**/*.yml": "ansible",
+            "ansible/handlers/**/*.yml": "ansible",
+            "ansible/defaults/**/*.yml": "ansible",
+            "ansible/vars/**/*.yml": "ansible",
+            "ansible/roles/**/*.yml": "ansible",
+            "ansible/playbooks/**/*.yml": "ansible",
+            "ansible/*.yml": "ansible"
+        },
+        "[ansible]": {
+            "editor.quickSuggestions": {
+                "other": true,
+                "comments": false,
+                "strings": true
+            }
+        },
+        "chat.tools.terminal.autoApprove": {
+            "ansible": true,
+            "hostname": true
+        }
+    }
+}
