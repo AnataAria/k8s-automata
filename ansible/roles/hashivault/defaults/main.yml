@@ -1,0 +1,14 @@
+---
+hashivault_token_ttl: 1800
+hashivault_token_max_ttl: 3600
+hashivault_token_no_default_policy: true
+hashivault_validate_certs: true
+hashivault_admin_token: "{{ lookup('ansible.builtin.env', 'HASHI_VAULT_TOKEN') }}"
+hashivault_kv_mount: "k8s-automata"
+hashivault_policy_name: "k8s-automata-ansible"
+
+hashivault_create_kv_mount: true
+hashivault_approle_mount: approle
+hashivault_approle_role_name: "k8s-automata-ansible"
+hashivault_output_file: >-
+  {{ inventory_dir }}/group_vars/all/cert.yml

@@ -1,0 +1,315 @@
+---
+- name: Validate HashiCorp Vault configuration
+  ansible.builtin.assert:
+    that:
+      - hashivault_url | default('') | length > 0
+      - hashivault_admin_token | default('') | length > 0
+      - hashivault_kv_mount | default('') | length > 0
+      - hashivault_policy_name | default('') | length > 0
+      - hashivault_approle_mount | default('') | length > 0
+    fail_msg: "HashiCorp Vault bootstrap configuration is incomplete."
+  no_log: true
+
+- name: Read Vault mounts
+  community.hashi_vault.vault_read:
+    url: "{{ hashivault_url }}"
+    path: sys/mounts
+    auth_method: token
+    token: "{{ hashivault_admin_token }}"
+    validate_certs: "{{ hashivault_validate_certs }}"
+  register: hashivault_mounts
+  changed_when: false
+  no_log: true
+
+- name: Enable HashiCorp Vault KV v2 mount
+  community.hashi_vault.vault_write:
+    url: "{{ hashivault_url }}"
+    path: "sys/mounts/{{ hashivault_kv_mount }}"
+    auth_method: token
+    token: "{{ hashivault_admin_token }}"
+    validate_certs: "{{ hashivault_validate_certs }}"
+    data:
+      type: kv
+      options:
+        version: "2"
+      description: "KV v2 mount for Kubernetes automation secrets"
+  when:
+    - hashivault_create_kv_mount | bool
+    - hashivault_kv_mount ~ '/' not in (hashivault_mounts.data.data | default({}))
+  no_log: true
+
+- name: Build Vault policy HCL
+  ansible.builtin.set_fact:
+    hashivault_policy_hcl: |
+      path "{{ hashivault_kv_mount }}/data/*" {
+        capabilities = ["create", "read", "update", "delete", "list"]
+      }
+
+      path "{{ hashivault_kv_mount }}/metadata/*" {
+        capabilities = ["read", "list", "delete"]
+      }
+
+- name: Read current Vault policy
+  community.hashi_vault.vault_read:
+    url: "{{ hashivault_url }}"
+    path: "sys/policies/acl/{{ hashivault_policy_name }}"
+    auth_method: token
+    token: "{{ hashivault_admin_token }}"
+    validate_certs: "{{ hashivault_validate_certs }}"
+  register: hashivault_current_policy
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Create or update Vault policy
+  community.hashi_vault.vault_write:
+    url: "{{ hashivault_url }}"
+    path: "sys/policies/acl/{{ hashivault_policy_name }}"
+    auth_method: token
+    token: "{{ hashivault_admin_token }}"
+    validate_certs: "{{ hashivault_validate_certs }}"
+    data:
+      policy: "{{ hashivault_policy_hcl }}"
+  when: >-
+    (
+      hashivault_current_policy.data.data.policy
+      | default('')
+      | trim
+    )
+    !=
+    (
+      hashivault_policy_hcl
+      | trim
+    )
+  no_log: true
+
+- name: Read Vault auth backends
+  community.hashi_vault.vault_read:
+    url: "{{ hashivault_url }}"
+    path: sys/auth
+    auth_method: token
+    token: "{{ hashivault_admin_token }}"
+    validate_certs: "{{ hashivault_validate_certs }}"
+  register: hashivault_auth_backends
+  changed_when: false
+  no_log: true
+
+- name: Enable AppRole auth backend
+  community.hashi_vault.vault_write:
+    url: "{{ hashivault_url }}"
+    path: "sys/auth/{{ hashivault_approle_mount }}"
+    auth_method: token
+    token: "{{ hashivault_admin_token }}"
+    validate_certs: "{{ hashivault_validate_certs }}"
+    data:
+      type: approle
+      description: "AppRole auth for Ansible automation"
+  when: >-
+    hashivault_approle_mount ~ '/'
+    not in (hashivault_auth_backends.data.data | default({}))
+  no_log: true
+
+- name: Read current AppRole role
+  community.hashi_vault.vault_read:
+    url: "{{ hashivault_url }}"
+    path: >-
+      auth/{{ hashivault_approle_mount
+      }}/role/{{ hashivault_approle_role_name }}
+    auth_method: token
+    token: "{{ hashivault_admin_token }}"
+    validate_certs: "{{ hashivault_validate_certs }}"
+  register: hashivault_current_approle
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Create or update AppRole role
+  community.hashi_vault.vault_write:
+    url: "{{ hashivault_url }}"
+    path: >-
+      auth/{{ hashivault_approle_mount
+      }}/role/{{ hashivault_approle_role_name }}
+    auth_method: token
+    token: "{{ hashivault_admin_token }}"
+    validate_certs: "{{ hashivault_validate_certs }}"
+    data:
+      bind_secret_id: true
+      token_ttl: "{{ hashivault_token_ttl }}"
+      token_max_ttl: "{{ hashivault_token_max_ttl }}"
+      token_no_default_policy: "{{ hashivault_token_no_default_policy }}"
+      token_policies:
+        - "{{ hashivault_policy_name }}"
+  when: >-
+    (hashivault_current_approle.data.data.token_ttl
+      | default(-1) | int)
+    != (hashivault_token_ttl | int)
+    or
+    (hashivault_current_approle.data.data.token_max_ttl
+      | default(-1) | int)
+    != (hashivault_token_max_ttl | int)
+    or
+    (
+      hashivault_current_approle.data.data.token_policies
+      | default([]) | sort
+    )
+    != ([hashivault_policy_name] | sort)
+    or
+    (
+      hashivault_current_approle.data.data.token_no_default_policy
+      | default(false) | bool
+    )
+    != (hashivault_token_no_default_policy | bool)
+  no_log: true
+
+- name: Read AppRole role ID
+  community.hashi_vault.vault_read:
+    url: "{{ hashivault_url }}"
+    path: >-
+      auth/{{ hashivault_approle_mount
+      }}/role/{{ hashivault_approle_role_name }}/role-id
+    auth_method: token
+    token: "{{ hashivault_admin_token }}"
+    validate_certs: "{{ hashivault_validate_certs }}"
+  register: hashivault_role_id_response
+  changed_when: false
+  no_log: true
+
+- name: Check generated AppRole credential file
+  ansible.builtin.stat:
+    path: "{{ hashivault_output_file }}"
+  register: hashivault_output_file_stat
+
+- name: Load existing AppRole credential file
+  ansible.builtin.include_vars:
+    file: "{{ hashivault_output_file }}"
+    name: hashivault_existing_credentials
+  when: hashivault_output_file_stat.stat.exists
+  no_log: true
+
+- name: List AppRole SecretID accessors
+  community.hashi_vault.vault_list:
+    url: "{{ hashivault_url }}"
+    path: >-
+      auth/{{ hashivault_approle_mount
+      }}/role/{{ hashivault_approle_role_name }}/secret-id
+    auth_method: token
+    token: "{{ hashivault_admin_token }}"
+    validate_certs: "{{ hashivault_validate_certs }}"
+  register: hashivault_secret_id_accessors
+  changed_when: false
+  no_log: true
+
+
+- name: Derive AppRole SecretID state
+  ansible.builtin.set_fact:
+    hashivault_secret_id_accessor_list: >-
+      {{
+        hashivault_secret_id_accessors.data.data.keys
+        | default([])
+      }}
+    hashivault_any_secret_id_exists: >-
+      {{
+        (
+          hashivault_secret_id_accessors.data.data.keys
+          | default([])
+          | length
+        ) > 0
+      }}
+  no_log: true
+
+- name: Validate existing credential file
+  ansible.builtin.assert:
+    that:
+      - >-
+        hashivault_existing_credentials.hashivault_role_id
+        | default('')
+        | length > 0
+      - >-
+        hashivault_existing_credentials.hashivault_secret_id
+        | default('')
+        | length > 0
+      - >-
+        hashivault_existing_credentials.hashivault_secret_id_accessor
+        | default('')
+        | length > 0
+    fail_msg: >-
+      The AppRole credential file {{ hashivault_output_file }} is incomplete.
+      It must contain role_id, secret_id, and secret_id_accessor.
+  when: hashivault_output_file_stat.stat.exists
+  no_log: true
+
+
+- name: Validate managed SecretID exists in Vault
+  ansible.builtin.assert:
+    that:
+      - >-
+        hashivault_existing_credentials.hashivault_secret_id_accessor
+        in hashivault_secret_id_accessor_list
+    fail_msg: >-
+      The SecretID accessor stored in {{ hashivault_output_file }}
+      no longer exists in Vault. The local credential file is stale.
+      Remove or restore the credential state before rerunning this role.
+  when: hashivault_output_file_stat.stat.exists
+  no_log: true
+
+
+- name: Fail when Vault has unmanaged SecretIDs but credential file is missing
+  ansible.builtin.fail:
+    msg: >-
+      AppRole {{ hashivault_approle_role_name }} already has one or more
+      SecretIDs, but {{ hashivault_output_file }} is missing.
+      Vault cannot recover plaintext SecretIDs from their accessors.
+      Restore the credential file or explicitly revoke the existing
+      SecretIDs before generating a new one.
+  when:
+    - not hashivault_output_file_stat.stat.exists
+    - hashivault_any_secret_id_exists
+
+- name: Generate AppRole SecretID
+  community.hashi_vault.vault_write:
+    url: "{{ hashivault_url }}"
+    path: >-
+      auth/{{ hashivault_approle_mount
+      }}/role/{{ hashivault_approle_role_name }}/secret-id
+    auth_method: token
+    token: "{{ hashivault_admin_token }}"
+    validate_certs: "{{ hashivault_validate_certs }}"
+    data:
+      metadata: >-
+        {{
+          {
+            'created_by': 'ansible',
+            'purpose': 'k8s-automata'
+          } | to_json
+        }}
+  register: hashivault_secret_id_response
+  when:
+    - not hashivault_output_file_stat.stat.exists
+    - not hashivault_any_secret_id_exists
+  no_log: true
+
+- name: Ensure AppRole credential directory exists
+  ansible.builtin.file:
+    path: "{{ hashivault_output_file | dirname }}"
+    state: directory
+    mode: "0700"
+  when:
+    - hashivault_secret_id_response is defined
+    - not hashivault_secret_id_response.skipped | default(false)
+
+- name: Write AppRole credential file
+  ansible.builtin.copy:
+    dest: "{{ hashivault_output_file }}"
+    mode: "0600"
+    content: |
+      ---
+      hashivault_url: "{{ hashivault_url }}"
+      hashivault_approle_mount: "{{ hashivault_approle_mount }}"
+      hashivault_role_id: "{{ hashivault_role_id_response.data.data.role_id }}"
+      hashivault_secret_id: "{{ hashivault_secret_id_response.data.data.secret_id }}"
+      hashivault_secret_id_accessor: "{{ hashivault_secret_id_response.data.data.secret_id_accessor }}"
+      hashivault_validate_certs: {{ hashivault_validate_certs | bool }}
+  when:
+    - hashivault_secret_id_response is defined
+    - not hashivault_secret_id_response.skipped | default(false)
+  no_log: true

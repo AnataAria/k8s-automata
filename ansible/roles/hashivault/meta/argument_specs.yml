@@ -1,0 +1,50 @@
+---
+argument_specs:
+  main:
+    short_description: This roles is for hashivault config
+    description: This roles is for hashivault config
+    options:
+      hashivault_config_mode:
+        type: str
+        required: false
+        default: "install"
+        choices: ["install", "remove"]
+        description: "hashivault config mode"
+      hashivault_admin_token:
+        type: str
+        required: true
+        description: "hashivault auth admin token"
+      hashivault_validate_certs:
+        type: bool
+        default: false
+        required: false
+        description: "hashivault certificate validation"
+      hashivault_url:
+        type: str
+        required: true
+        description: "hashivault server api url"
+      hashivault_policy_name:
+        type: str
+        required: false
+        default: "k8s-automata-ansible"
+        description: "hashivault policy name"
+      hashivault_token_ttl:
+        type: int
+        required: false
+        default: 1800
+        description: "hashivault token ttl"
+      hashivault_token_max_ttl:
+        type: int
+        required: false
+        default: 3600
+        description: "hashivault token max ttl"
+      hashivault_token_no_default_policy:
+        type: bool
+        required: false
+        default: true
+        description: "hashivault token no default policy"
+      hashivault_kv_mount:
+        type: str
+        required: false
+        default: "k8s-automata"
+        description: "hashivault kv 2 mount"

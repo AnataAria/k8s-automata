@@ -1,0 +1,11 @@
+---
+- name: Validate auth token
+  ansible.builtin.assert:
+    that:
+      - hashivault_token | length > 0
+    fail_msg: "Missing VAULT_TOKEN. Run: export VAULT_TOKEN=<vault-admin-token>"
+  no_log: true
+
+- name: Init hashivault config
+  ansible.builtin.include_tasks: create.yml
+  when: hashivault_config_mode == "install"
