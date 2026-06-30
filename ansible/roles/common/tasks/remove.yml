@@ -1,0 +1,141 @@
+---
+- name: Remove DNS resolution configuration
+  when: common_configure_dns | bool is false
+  tags:
+    - dns
+  block:
+    - name: Remove resolved.conf fallback DNS
+      ansible.builtin.lineinfile:
+        path: /etc/systemd/resolved.conf
+        regexp: '^#?FallbackDNS='
+        state: absent
+        backup: true
+      notify: Restart systemd-resolved
+      when: common_systemd_services.resolved_available | bool
+
+    - name: Remove resolved.conf DNS servers
+      ansible.builtin.lineinfile:
+        path: /etc/systemd/resolved.conf
+        regexp: '^#?DNS='
+        state: absent
+        backup: true
+      notify: Restart systemd-resolved
+      when: common_systemd_services.resolved_available | bool
+
+- name: Remove NTP configuration for time synchronization
+  when: common_enable_ntp | bool is false
+  tags:
+    - ntp
+    - time
+  block:
+    - name: Remove systemd-timesyncd configuration
+      ansible.builtin.file:
+        path: /etc/systemd/timesyncd.conf
+        state: absent
+      notify: Restart timesyncd
+      when: common_systemd_services.timesyncd_available | bool
+
+    - name: Disable and stop systemd-timesyncd
+      ansible.builtin.systemd:
+        name: systemd-timesyncd
+        enabled: false
+        state: stopped
+        daemon_reload: true
+      when: common_systemd_services.timesyncd_available | bool
+
+    - name: Remove systemd-timesyncd package
+      ansible.builtin.apt:
+        name: systemd-timesyncd
+        state: absent
+      when: common_systemd_services.timesyncd_available | bool
+
+- name: Remove unused filesystems
+  when: common_disable_unused_filesystems | bool is false
+  tags:
+    - security
+    - filesystems
+  ansible.builtin.lineinfile:
+    path: /etc/modprobe.d/blacklist-rare-filesystems.conf
+    regexp: '^install {{ item | regex_escape() }} /bin/true$'
+    state: absent
+  loop: "{{ common_unused_filesystems }}"
+
+- name: Remove system limit config
+  tags:
+    - limits
+  community.general.pam_limits:
+    domain: "{{ item.domain }}"
+    limit_type: "{{ item.type }}"
+    limit_item: "{{ item.item }}"
+    value: "{{ item.value }}"
+    state: absent
+  loop: "{{ common_system_limits }}"
+
+- name: Remove sysctl parameters for Kubernetes
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    state: absent
+    sysctl_file: /etc/sysctl.d/k8s.conf
+    reload: true
+  loop: "{{ common_k8s_sysctl_params }}"
+  tags:
+    - sysctl
+    - kernel
+
+- name: Remove kernel modules load at boot
+  ansible.builtin.file:
+    path: "/etc/modules-load.d/k8s.confs"
+    state: absent
+  when: ansible_facts["virtualization_type"] != 'lxc'
+  tags:
+    - kernel
+    - modules
+
+- name: Remove load required kernel modules
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: absent
+  loop: "{{ common_k8s_kernel_modules }}"
+  when: ansible_facts["virtualization_type"] != 'lxc'
+  tags:
+    - kernel
+    - modules
+
+- name: Enable swap in fstab
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^#\s+(\S+\s+\S+\s+swap\s+\S+\s+.*)$'
+    replace: '\1'
+    backup: true
+  when: common_disable_swap | bool
+  tags:
+    - swap
+
+- name: Update /etc/hosts with managed infrastructure
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^{{ (hostvars[item].ip | default(hostvars[item].access_ip | default(hostvars[item].ansible_host))) | regex_escape() }}\\s+{{ item }}$'
+    line: "{{ hostvars[item].ip | default(hostvars[item].access_ip | default(hostvars[item].ansible_host)) }} {{ item }}"
+    state: absent
+    backup: true
+  loop: "{{ ((groups['cluster_nodes'] | default([])) + (groups['load_balancers'] | default([])) + (groups['bastion'] | default([]))) | unique }}"
+  when: hostvars[item].ansible_host is defined
+  tags:
+    - hosts
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  when: common_update_packages | bool
+  tags:
+    - packages
+    - update
+
+- name: Remove common packages
+  ansible.builtin.apt:
+    name: "{{ common_common_packages }}"
+    state: absent
+    update_cache: false
+  tags:
+    - packages
