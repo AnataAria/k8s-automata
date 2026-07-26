@@ -7,8 +7,8 @@ argument_specs:
       hashivault_config_mode:
         type: str
         required: false
-        default: "install"
-        choices: ["install", "remove"]
+        default: "create"
+        choices: ["create", "remove"]
         description: "hashivault config mode"
       hashivault_admin_token:
         type: str

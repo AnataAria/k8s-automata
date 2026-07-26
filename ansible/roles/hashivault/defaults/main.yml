@@ -1,4 +1,6 @@
 ---
+hashivault_config_mode: "create"
+
 hashivault_token_ttl: 1800
 hashivault_token_max_ttl: 3600
 hashivault_token_no_default_policy: true

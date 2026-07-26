@@ -1,1 +1,153 @@
 ---
+- name: Validate HashiCorp Vault removal configuration
+  ansible.builtin.assert:
+    that:
+      - hashivault_url | default('') | length > 0
+      - hashivault_admin_token | default('') | length > 0
+      - hashivault_kv_mount | default('') | length > 0
+      - hashivault_policy_name | default('') | length > 0
+      - hashivault_approle_mount | default('') | length > 0
+      - hashivault_approle_role_name | default('') | length > 0
+    fail_msg: "HashiCorp Vault removal configuration is incomplete."
+  no_log: true
+
+- name: Read Vault auth backends
+  community.hashi_vault.vault_read:
+    url: "{{ hashivault_url }}"
+    path: sys/auth
+    auth_method: token
+    token: "{{ hashivault_admin_token }}"
+    validate_certs: "{{ hashivault_validate_certs }}"
+  register: hashivault_auth_backends
+  changed_when: false
+  no_log: true
+
+- name: Read AppRole roles list
+  community.hashi_vault.vault_list:
+    url: "{{ hashivault_url }}"
+    path: "auth/{{ hashivault_approle_mount }}/role"
+    auth_method: token
+    token: "{{ hashivault_admin_token }}"
+    validate_certs: "{{ hashivault_validate_certs }}"
+  register: hashivault_approle_roles_list
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when:
+    - hashivault_approle_mount ~ '/' in (hashivault_auth_backends.data.data | default({}))
+
+- name: Set AppRole role existence fact
+  ansible.builtin.set_fact:
+    hashivault_approle_role_exists: >-
+      {{
+        hashivault_approle_role_name
+        in (hashivault_approle_roles_list.data.data.keys | default([]))
+      }}
+    hashivault_approle_other_roles_exist: >-
+      {{
+        (
+          hashivault_approle_roles_list.data.data.keys | default([])
+          | reject('equalto', hashivault_approle_role_name)
+          | list
+          | length
+        ) > 0
+      }}
+  no_log: true
+
+- name: List AppRole SecretID accessors
+  community.hashi_vault.vault_list:
+    url: "{{ hashivault_url }}"
+    path: >-
+      auth/{{ hashivault_approle_mount
+      }}/role/{{ hashivault_approle_role_name }}/secret-id
+    auth_method: token
+    token: "{{ hashivault_admin_token }}"
+    validate_certs: "{{ hashivault_validate_certs }}"
+  register: hashivault_secret_id_accessors
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when: hashivault_approle_role_exists | bool
+
+- name: Revoke AppRole SecretIDs by accessor
+  community.hashi_vault.vault_write:
+    url: "{{ hashivault_url }}"
+    path: >-
+      auth/{{ hashivault_approle_mount
+      }}/role/{{ hashivault_approle_role_name }}/secret-id/destroy
+    auth_method: token
+    token: "{{ hashivault_admin_token }}"
+    validate_certs: "{{ hashivault_validate_certs }}"
+    data:
+      accessor: "{{ item }}"
+  loop: "{{ hashivault_secret_id_accessors.data.data.keys | default([]) }}"
+  no_log: true
+  when:
+    - hashivault_approle_role_exists | bool
+    - (hashivault_secret_id_accessors.data.data.keys | default([]) | length) > 0
+
+- name: Delete AppRole role
+  ansible.builtin.uri:
+    url: >-
+      {{ hashivault_url }}/v1/auth/{{ hashivault_approle_mount
+      }}/role/{{ hashivault_approle_role_name }}
+    method: DELETE
+    headers:
+      X-Vault-Token: "{{ hashivault_admin_token }}"
+    validate_certs: "{{ hashivault_validate_certs | bool }}"
+    status_code: [204, 404]
+  no_log: true
+  when: hashivault_approle_role_exists | bool
+
+- name: Disable AppRole auth backend
+  ansible.builtin.uri:
+    url: "{{ hashivault_url }}/v1/sys/auth/{{ hashivault_approle_mount }}"
+    method: DELETE
+    headers:
+      X-Vault-Token: "{{ hashivault_admin_token }}"
+    validate_certs: "{{ hashivault_validate_certs | bool }}"
+    status_code: [204, 404]
+  no_log: true
+  when:
+    - hashivault_approle_mount ~ '/' in (hashivault_auth_backends.data.data | default({}))
+    - not (hashivault_approle_roles_list.failed | default(false) | bool)
+    - not (hashivault_approle_other_roles_exist | bool)
+
+- name: Delete Vault policy
+  ansible.builtin.uri:
+    url: "{{ hashivault_url }}/v1/sys/policies/acl/{{ hashivault_policy_name }}"
+    method: DELETE
+    headers:
+      X-Vault-Token: "{{ hashivault_admin_token }}"
+    validate_certs: "{{ hashivault_validate_certs | bool }}"
+    status_code: [204, 404]
+  no_log: true
+
+- name: Read Vault mounts
+  community.hashi_vault.vault_read:
+    url: "{{ hashivault_url }}"
+    path: sys/mounts
+    auth_method: token
+    token: "{{ hashivault_admin_token }}"
+    validate_certs: "{{ hashivault_validate_certs }}"
+  register: hashivault_mounts
+  changed_when: false
+  no_log: true
+
+- name: Disable KV v2 mount
+  ansible.builtin.uri:
+    url: "{{ hashivault_url }}/v1/sys/mounts/{{ hashivault_kv_mount }}"
+    method: DELETE
+    headers:
+      X-Vault-Token: "{{ hashivault_admin_token }}"
+    validate_certs: "{{ hashivault_validate_certs | bool }}"
+    status_code: [204, 404]
+  no_log: true
+  when:
+    - hashivault_create_kv_mount | bool
+    - hashivault_kv_mount ~ '/' in (hashivault_mounts.data.data | default({}))
+
+- name: Remove AppRole credential file
+  ansible.builtin.file:
+    path: "{{ hashivault_output_file }}"
+    state: absent

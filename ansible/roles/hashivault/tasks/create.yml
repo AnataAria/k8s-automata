@@ -7,6 +7,7 @@
       - hashivault_kv_mount | default('') | length > 0
       - hashivault_policy_name | default('') | length > 0
       - hashivault_approle_mount | default('') | length > 0
+      - hashivault_approle_role_name | default('') | length > 0
     fail_msg: "HashiCorp Vault bootstrap configuration is incomplete."
   no_log: true
 
