@@ -7,7 +7,7 @@ argument_specs:
       k8s_config_mode:
         type: str
         required: false
-        default: add
+        default: install
         choices:
           - install
           - remove

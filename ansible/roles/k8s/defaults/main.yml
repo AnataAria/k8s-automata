@@ -2,7 +2,6 @@
 k8s_config_mode: install
 k8s_apt_keyring_path: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 k8s_apt_repo: "deb [signed-by={{ k8s_apt_keyring_path }}] https://pkgs.k8s.io/core:/stable:/v{{ k8s_minor }}/deb/ /"
-k8s_docker_repo_file: /etc/apt/sources.list.d/docker.sources
 k8s_packages:
   - kubeadm
   - kubelet
@@ -17,3 +16,13 @@ k8s_prerequisite_packages:
 k8s_node_ip: "{{ ip | default(access_ip | default(ansible_host)) }}"
 k8s_containerd_owner: root
 k8s_containerd_config_dir: /etc/containerd
+k8s_containerd_gpg_keys:
+  - /usr/share/keyrings/docker-archive-keyring.gpg
+  - /etc/apt/keyrings/docker.gpg
+  - /etc/apt/keyrings/docker.asc
+  - /usr/share/keyrings/docker.gpg
+k8s_containerd_repo_file: /etc/apt/sources.list.d/docker.sources
+k8s_containerd_repo_files:
+  - /etc/apt/sources.list.d/docker.list
+  - "{{ k8s_containerd_repo_file }}"
+  - /etc/apt/sources.list.d/docker-ce.list

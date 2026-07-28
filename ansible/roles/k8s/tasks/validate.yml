@@ -3,7 +3,7 @@
   ansible.builtin.assert:
     that:
       - k8s_config_mode in ['install', 'remove']
-    fail_msg: "k8s_config_mode must be either 'add' or 'remove'."
+    fail_msg: "k8s_config_mode must be either 'install' or 'remove'."
     success_msg: "k8s_config_mode is valid."
   tags:
     - always
@@ -29,10 +29,10 @@
       - k8s_node_ip is defined
       - k8s_node_ip | string | length > 0
     fail_msg: >-
-      k8s_version, k8s_minor, and k8s_node_ip must be defined for k8s_mode=add.
+      k8s_version, k8s_minor, and k8s_node_ip must be defined for k8s_config_mode=install.
       k8s_minor can be omitted when k8s_version is set as MAJOR.MINOR.PATCH.
     success_msg: "Kubernetes package inputs are valid."
-  when: k8s_mode == 'add'
+  when: k8s_config_mode == 'install'
   tags:
     - always
     - validate
