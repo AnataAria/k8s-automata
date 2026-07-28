@@ -4,12 +4,12 @@ argument_specs:
     short_description: This roles is for all k8s cluster configuration install
     description: This roles is for all k8s cluster configuration install
     options:
-      k8s_mode:
+      k8s_config_mode:
         type: str
         required: false
         default: add
         choices:
-          - add
+          - install
           - remove
         description: "k8s config mode"
       k8s_version:
@@ -20,6 +20,11 @@ argument_specs:
         type: str
         required: false
         description: "Kubernetes repository minor version. Derived from k8s_version when omitted."
+      k8s_package_version:
+        type: str
+        required: false
+        default: ""
+        description: "Optional exact apt version applied to kubeadm, kubelet, and kubectl."
       k8s_node_ip:
         type: str
         required: false

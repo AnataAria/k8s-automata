@@ -1,21 +1,19 @@
 ---
+- name: Install Kubernetes prerequisite packages
+  ansible.builtin.apt:
+    name: "{{ k8s_prerequisite_packages }}"
+    state: present
+    update_cache: true
+  tags:
+    - kubernetes
+    - repo
+    - install
+
 - name: Install containerd
   tags:
     - containerd
     - install
   block:
-    - name: Install packages required for Docker apt repository
-      ansible.builtin.apt:
-        name:
-          - ca-certificates
-          - curl
-        state: present
-        update_cache: true
-      tags:
-        - containerd
-        - repo
-        - install
-
     - name: Create docker apt keyring directories
       ansible.builtin.file:
         path: /etc/apt/keyrings
@@ -38,17 +36,28 @@
         - containerd
         - repo
 
+    - name: Determine Debian architecture
+      ansible.builtin.command: dpkg --print-architecture
+      register: k8s_docker_architecture
+      changed_when: false
+      check_mode: false
+      tags:
+        - containerd
+        - repo
+
     - name: Add Docker apt repository
       ansible.builtin.copy:
-        dest: /etc/apt/sources.list.d/docker.list
+        dest: "{{ k8s_docker_repo_file }}"
         mode: "0644"
         owner: root
         group: root
-        content: >-
-          deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else
-          ansible_architecture }} signed-by=/etc/apt/keyrings/docker.asc]
-          https://download.docker.com/linux/{{ ansible_distribution | lower }}
-          {{ ansible_distribution_release }} stable
+        content: |
+          Types: deb
+          URIs: https://download.docker.com/linux/{{ ansible_distribution | lower }}
+          Suites: {{ ansible_distribution_release }}
+          Components: stable
+          Architectures: {{ k8s_docker_architecture.stdout | trim }}
+          Signed-By: /etc/apt/keyrings/docker.asc
       tags:
         - containerd
         - repo
@@ -64,7 +73,7 @@
 
     - name: Ensure containerd config directory exists
       ansible.builtin.file:
-        path: /etc/containerd
+        path: "{{ k8s_containerd_config_dir }}"
         state: directory
         mode: "0755"
         owner: root
@@ -82,14 +91,13 @@
 
     - name: Check containerd config file
       ansible.builtin.stat:
-        path: /etc/containerd/config.toml
+        path: "{{ k8s_containerd_config_dir }}/config.toml"
       register: k8s_containerd_config_stat
       changed_when: false
       tags:
         - containerd
         - config
         - verify
-
 
     - name: Generate default containerd configuration content
       ansible.builtin.command:
@@ -103,11 +111,11 @@
 
     - name: Write default containerd configuration
       ansible.builtin.copy:
-        dest: /etc/containerd/config.toml
+        dest: "{{ k8s_containerd_config_dir }}/config.toml"
         content: "{{ k8s_containerd_default_config.stdout }}\n"
         mode: "0644"
-        owner: root
-        group: root
+        owner: "{{ k8s_containerd_owner }}"
+        group: "{{ k8s_containerd_owner }}"
       when: not k8s_containerd_config_stat.stat.exists
       notify: restart containerd
       tags:
@@ -116,7 +124,7 @@
 
     - name: Configure systemd cgroup driver for containerd
       ansible.builtin.lineinfile:
-        path: /etc/containerd/config.toml
+        path: "{{ k8s_containerd_config_dir }}/config.toml"
         regexp: '^(\s*)SystemdCgroup\s*=\s*false'
         line: '\1SystemdCgroup = true'
         backrefs: true
@@ -157,16 +165,6 @@
     - kubernetes
     - install
   block:
-    - name: Install Kubernetes prerequisite packages
-      ansible.builtin.apt:
-        name: "{{ k8s_prerequisite_packages }}"
-        state: present
-        update_cache: true
-      tags:
-        - kubernetes
-        - repo
-        - install
-
     - name: Ensure apt keyring directory exists
       ansible.builtin.file:
         path: /etc/apt/keyrings
@@ -240,7 +238,9 @@
 
     - name: Install kubeadm, kubelet, and kubectl packages
       ansible.builtin.apt:
-        name: "{{ k8s_packages | map('regex_replace', '$', '=' + k8s_version + '-1.1') | list }}"
+        name: >-
+          {{ k8s_packages | map('regex_replace', '$', '=' + k8s_package_version) | list
+             if k8s_package_version | length > 0 else k8s_packages }}
         state: present
         allow_downgrade: true
         allow_change_held_packages: true

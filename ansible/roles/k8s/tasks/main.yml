@@ -14,9 +14,14 @@
         - add
         - containerd
         - kubernetes
-  when: k8s_mode | default('add') == "add"
+  when: k8s_config_mode | default('install') == "install"
 
 - name: Remove containerd and kubernetes
   ansible.builtin.include_tasks:
     file: remove.yml
-  when: k8s_mode | default('add') == "remove"
+    apply:
+      tags:
+        - remove
+        - containerd
+        - kubernetes
+  when: k8s_config_mode | default('install') == "remove"

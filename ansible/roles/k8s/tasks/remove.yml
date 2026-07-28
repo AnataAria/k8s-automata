@@ -112,11 +112,11 @@
       ansible.builtin.file:
         path: "{{ item }}"
         state: absent
-      loop:
-        - /usr/share/keyrings/docker-archive-keyring.gpg
-        - /etc/apt/keyrings/docker.gpg
-        - /etc/apt/keyrings/docker.asc
-        - /usr/share/keyrings/docker.gpg
+        loop:
+          - /usr/share/keyrings/docker-archive-keyring.gpg
+          - /etc/apt/keyrings/docker.gpg
+          - /etc/apt/keyrings/docker.asc
+          - /usr/share/keyrings/docker.gpg
       notify: update apt cache
       tags:
         - repo
@@ -125,10 +125,11 @@
       ansible.builtin.file:
         path: "{{ item }}"
         state: absent
-      loop:
-        - /etc/apt/sources.list.d/docker.list
-        - /etc/apt/sources.list.d/docker.sources
-        - /etc/apt/sources.list.d/docker-ce.list
+        loop:
+          - "{{ k8s_docker_repo_file }}"
+          - /etc/apt/sources.list.d/docker.list
+          - /etc/apt/sources.list.d/docker.sources
+          - /etc/apt/sources.list.d/docker-ce.list
       notify: update apt cache
       tags:
         - repo
